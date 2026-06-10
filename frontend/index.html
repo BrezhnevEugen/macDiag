@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>macDiag — MB W221 / X164 OBD</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">macDiag <span>W221 · X164</span></div>
+    <div class="conn">
+      <span id="mode" class="badge">—</span>
+      <span id="dot" class="dot off"></span>
+      <span id="connText">не подключено</span>
+      <button id="connBtn">Подключить</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="live" class="active">Live data</button>
+    <button data-tab="dtc">Ошибки (DTC)</button>
+    <button data-tab="modules">Модули ЭБУ</button>
+    <button data-tab="coding">Кодирование</button>
+  </nav>
+
+  <main>
+    <!-- LIVE -->
+    <section id="live" class="tab active">
+      <div class="row">
+        <button id="liveStart">▶ Старт потока</button>
+        <button id="liveStop" disabled>■ Стоп</button>
+      </div>
+      <div id="gauges" class="gauges"></div>
+    </section>
+
+    <!-- DTC -->
+    <section id="dtc" class="tab">
+      <div class="row">
+        <select id="dtcModule"></select>
+        <button id="dtcRead">Считать ошибки</button>
+        <button id="dtcClear" class="danger">Сбросить</button>
+      </div>
+      <table id="dtcTable">
+        <thead><tr><th>Код</th><th>Статус</th><th>Описание</th><th>raw</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="dtcEmpty" class="muted hidden">Ошибок не найдено.</p>
+    </section>
+
+    <!-- MODULES -->
+    <section id="modules" class="tab">
+      <div class="row">
+        <select id="chassis">
+          <option value="">Все шасси</option>
+          <option value="W221">W221 (S-Class)</option>
+          <option value="X164">X164 (GL-Class)</option>
+        </select>
+      </div>
+      <table id="modTable">
+        <thead><tr><th>Модуль</th><th>TX</th><th>RX</th><th>Протокол</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="modInfo" class="card hidden"></div>
+    </section>
+
+    <!-- CODING -->
+    <section id="coding" class="tab">
+      <div class="warn">⚠ Кодирование изменяет настройки ЭБУ. Неверные значения могут вывести модуль из строя. Сначала прочитайте текущее значение DID.</div>
+      <div class="form">
+        <label>Модуль <select id="codeModule"></select></label>
+        <label>DID (hex) <input id="codeDid" placeholder="напр. F198"></label>
+        <label>Значение (hex) <input id="codeVal" placeholder="напр. 01A2"></label>
+        <button id="codeRead">Прочитать</button>
+        <button id="codeWrite" class="danger">Записать</button>
+      </div>
+      <pre id="codeOut" class="out"></pre>
+    </section>
+  </main>
+
+  <footer>симулятор по умолчанию · реальное железо: <code>MACDIAG_MODE=hw</code></footer>
+  <script src="app.js"></script>
+</body>
+</html>
