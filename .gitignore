@@ -23,3 +23,7 @@ driver/*.dylib
 driver/*.so
 driver/*.dll
 
+# local screenshots / recordings
+Снимок экрана*.png
+Запись экрана*.mov
+
