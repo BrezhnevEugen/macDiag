@@ -3,82 +3,197 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>macDiag — MB W221 / X164 OBD</title>
+  <title>macDiag — MB OBD</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <div class="brand">macDiag <span>W221 · X164</span></div>
+    <div class="brand">macDiag</div>
     <div class="conn">
-      <span id="mode" class="badge">—</span>
-      <span id="dot" class="dot off"></span>
-      <span id="connText">не подключено</span>
-      <button id="connBtn">Подключить</button>
+      <span class="seg" id="langSeg">
+        <button data-lang="ru">RU</button>
+        <button data-lang="en">EN</button>
+        <button data-lang="de">DE</button>
+      </span>
+      <span class="seg">
+        <button id="modeSim" data-mode="sim" data-i18n="Эмулятор">Эмулятор</button>
+        <button id="modeHw" data-mode="hw" data-i18n="Железо">Железо</button>
+      </span>
+      <span id="mode" class="hidden"></span>
+      <span id="busy" class="spinner" style="display:none"></span>
+      <span class="pill"><span id="dot" class="dot off"></span><span id="connText" data-i18n="не подключено">не подключено</span></span>
+      <button id="connBtn" data-i18n="Подключить">Подключить</button>
     </div>
   </header>
 
   <nav class="tabs">
-    <button data-tab="live" class="active">Live data</button>
-    <button data-tab="dtc">Ошибки (DTC)</button>
-    <button data-tab="modules">Модули ЭБУ</button>
-    <button data-tab="coding">Кодирование</button>
+    <button data-tab="overview" class="active" data-i18n="Обзор">Обзор</button>
+    <button data-tab="live" data-i18n="Live data">Live data</button>
+    <button data-tab="dtc" data-i18n="Ошибки">Ошибки</button>
+    <button data-tab="modules" data-i18n="Модули">Модули</button>
+    <button data-tab="coding" data-i18n="Кодирование">Кодирование</button>
   </nav>
 
   <main>
-    <!-- LIVE -->
-    <section id="live" class="tab active">
-      <div class="row">
-        <button id="liveStart">▶ Старт потока</button>
-        <button id="liveStop" disabled>■ Стоп</button>
+    <!-- OVERVIEW -->
+    <section id="overview" class="tab active">
+      <div class="cards3">
+        <div class="card">
+          <div class="clabel" data-i18n="автомобиль">автомобиль</div>
+          <div id="ovVehicle" class="dim">—</div>
+          <button id="ovReadVin" class="ghost" style="margin-top:12px" data-i18n="Прочитать VIN">Прочитать VIN</button>
+        </div>
+        <div class="card">
+          <div class="clabel" data-i18n="адаптер">адаптер</div>
+          <div id="ovAdapter" class="dim">—</div>
+        </div>
+        <div class="card">
+          <div class="clabel" data-i18n="шина">шина</div>
+          <div id="ovBus" class="dim">—</div>
+        </div>
       </div>
+
+      <div id="ovMetrics" class="metrics" style="margin-top:12px"></div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin:20px 0 10px;">
+        <span style="font-size:14px; font-weight:500" data-i18n="Блоки управления">Блоки управления</span>
+        <span style="display:flex; gap:8px; align-items:center">
+          <select id="ovChassis">
+            <option value="" data-i18n="Все шасси">Все шасси</option>
+            <option value="X164">X164 (GL)</option>
+            <option value="W221">W221 (S)</option>
+            <option value="W251">W251 (R)</option>
+            <option value="C216">C216 (CL)</option>
+          </select>
+          <button id="ovGw" class="ghost" data-i18n="Опросить шлюз">Опросить шлюз</button>
+          <button id="ovScan" data-i18n="⚡ Сканировать">⚡ Сканировать</button>
+        </span>
+      </div>
+      <span id="ovScanStat" class="muted"></span>
+      <div id="gwInfo"></div>
+      <div id="ovScanGrid" class="ecugrid"></div>
+    </section>
+
+    <!-- LIVE -->
+    <section id="live" class="tab">
+      <div class="row" style="margin-top:4px">
+        <button id="liveStart" data-i18n="▶ Старт потока (двигатель / OBD)">▶ Старт потока (двигатель / OBD)</button>
+        <button id="liveStop" class="ghost" disabled data-i18n="■ Стоп">■ Стоп</button>
+      </div>
+      <div id="pidGauges" class="gauges"></div>
+
+      <h3 data-i18n="Группы измерений по ЭБУ">Группы измерений по ЭБУ</h3>
+      <div class="row">
+        <label class="muted"><span data-i18n="ЭБУ">ЭБУ</span> <select id="measEcu"><option value="" data-i18n="— выбери —">— выбери —</option></select></label>
+        <label class="muted"><span data-i18n="Группа">Группа</span> <select id="measGroup" style="min-width:280px"></select></label>
+        <button id="measAuto" class="ghost" disabled data-i18n="▶ Авто">▶ Авто</button>
+      </div>
+      <div id="measDesc" class="card hidden"></div>
       <div id="gauges" class="gauges"></div>
+      <div id="measEmpty" class="muted" data-i18n="Выбери ЭБУ и группу измерений.">Выбери ЭБУ и группу измерений.</div>
+
+      <h3 data-i18n="Сервисные процедуры">Сервисные процедуры</h3>
+      <div class="row">
+        <select id="svcSelect" style="min-width:340px"><option value="" data-i18n="— выбери процедуру —">— выбери процедуру —</option></select>
+      </div>
+      <div id="svcDetails"></div>
     </section>
 
     <!-- DTC -->
     <section id="dtc" class="tab">
       <div class="row">
         <select id="dtcModule"></select>
-        <button id="dtcRead">Считать ошибки</button>
-        <button id="dtcClear" class="danger">Сбросить</button>
+        <button id="dtcRead" data-i18n="Считать ошибки">Считать ошибки</button>
+        <button id="dtcClear" class="danger" data-i18n="Сбросить">Сбросить</button>
       </div>
       <table id="dtcTable">
-        <thead><tr><th>Код</th><th>Статус</th><th>Описание</th><th>raw</th></tr></thead>
+        <thead><tr><th data-i18n="Код">Код</th><th data-i18n="Статус">Статус</th><th data-i18n="Описание">Описание</th><th data-i18n="raw">raw</th></tr></thead>
         <tbody></tbody>
       </table>
-      <p id="dtcEmpty" class="muted hidden">Ошибок не найдено.</p>
+      <p id="dtcEmpty" class="muted hidden" data-i18n="Ошибок не найдено.">Ошибок не найдено.</p>
+      <p class="muted" id="dtcHint" data-i18n="Нажми на код ошибки, чтобы провалиться в диагностику.">Нажми на код ошибки, чтобы провалиться в диагностику.</p>
+      <div id="dtcDrill"></div>
     </section>
 
     <!-- MODULES -->
     <section id="modules" class="tab">
       <div class="row">
         <select id="chassis">
-          <option value="">Все шасси</option>
+          <option value="" data-i18n="Все шасси">Все шасси</option>
           <option value="W221">W221 (S-Class)</option>
           <option value="X164">X164 (GL-Class)</option>
+          <option value="W251">W251 (R-Class)</option>
+          <option value="C216">C216 (CL-Class)</option>
         </select>
       </div>
       <table id="modTable">
-        <thead><tr><th>Модуль</th><th>TX</th><th>RX</th><th>Протокол</th><th></th></tr></thead>
+        <thead><tr><th data-i18n="Модуль">Модуль</th><th data-i18n="CBF">CBF</th><th data-i18n="TX">TX</th><th data-i18n="RX">RX</th><th data-i18n="Прот.">Прот.</th><th data-i18n="Шина">Шина</th><th data-i18n="Деталь">Деталь</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <div id="modInfo" class="card hidden"></div>
+
+      <h3 data-i18n="Полный каталог ЭБУ из Vediamo (CBF)">Полный каталог ЭБУ из Vediamo (CBF)</h3>
+      <div class="row">
+        <input id="catSearch" placeholder="поиск по имени ЭБУ…" data-i18n-ph="поиск по имени ЭБУ…" style="flex:1">
+        <span id="catCount" class="muted"></span>
+      </div>
+      <table id="catTable">
+        <thead><tr><th data-i18n="ЭБУ">ЭБУ</th><th data-i18n="Прот.">Прот.</th><th data-i18n="TX">TX</th><th data-i18n="RX">RX</th><th data-i18n="Шина">Шина</th><th data-i18n="Шасси">Шасси</th><th data-i18n="Деталь">Деталь</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </section>
 
     <!-- CODING -->
     <section id="coding" class="tab">
-      <div class="warn">⚠ Кодирование изменяет настройки ЭБУ. Неверные значения могут вывести модуль из строя. Сначала прочитайте текущее значение DID.</div>
-      <div class="form">
-        <label>Модуль <select id="codeModule"></select></label>
-        <label>DID (hex) <input id="codeDid" placeholder="напр. F198"></label>
-        <label>Значение (hex) <input id="codeVal" placeholder="напр. 01A2"></label>
-        <button id="codeRead">Прочитать</button>
-        <button id="codeWrite" class="danger">Записать</button>
+      <div class="warn" data-i18n="⚠ Кодирование меняет настройки ЭБУ. Неверные значения могут вывести модуль из строя. Сначала прочитай текущее.">⚠ Кодирование меняет настройки ЭБУ. Неверные значения могут вывести модуль из строя. Сначала прочитай текущее.</div>
+
+      <div class="row">
+        <label class="muted"><span data-i18n="Модуль">Модуль</span> <select id="codeModule"></select></label>
+        <select id="vcDomain"><option value="" data-i18n="— нажми «Домены» —">— нажми «Домены» —</option></select>
+        <button id="vcLoad" class="ghost" data-i18n="Домены">Домены</button>
       </div>
-      <pre id="codeOut" class="out"></pre>
+      <div class="row">
+        <label class="muted"><span data-i18n="LID (авто из CBF)">LID (авто из CBF)</span> <input id="vcLid" placeholder="из CBF" data-i18n-ph="из CBF" style="width:90px"></label>
+        <button id="vcRead" data-i18n="⤓ Прочитать с авто">⤓ Прочитать с авто</button>
+        <input id="vcCoding" placeholder="или строка hex вручную" data-i18n-ph="или строка hex вручную" style="flex:1">
+        <button id="vcDecode" class="ghost" data-i18n="Декодировать">Декодировать</button>
+        <button id="vcApply" class="danger" data-i18n="⤒ Записать">⤒ Записать</button>
+      </div>
+      <div class="row"><span class="muted" data-i18n="Текущая строка:">Текущая строка:</span> <code id="vcCurrent">—</code></div>
+      <table id="vcTable">
+        <thead><tr><th data-i18n="Параметр">Параметр</th><th data-i18n="Бит">Бит</th><th data-i18n="Значение">Значение</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <details style="margin-top:22px">
+        <summary style="cursor:pointer; color:var(--muted); font-size:14px" data-i18n="Расширенное · ручная запись DID">Расширенное · ручная запись DID</summary>
+        <div class="form" style="margin-top:12px">
+          <label><span data-i18n="DID (hex)">DID (hex)</span> <input id="codeDid" placeholder="напр. F198" data-i18n-ph="напр. F198"></label>
+          <label><span data-i18n="Значение (hex)">Значение (hex)</span> <input id="codeVal" placeholder="напр. 01A2" data-i18n-ph="напр. 01A2"></label>
+          <label><span data-i18n="Уровень">Уровень</span> <select id="codeLevel"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+          <button id="codeUnlock" class="ghost" data-i18n="🔓 Разблокировать">🔓 Разблокировать</button>
+          <button id="codeWrite" class="danger" data-i18n="Записать DID">Записать DID</button>
+        </div>
+        <pre id="codeOut" class="out" style="margin-top:12px"></pre>
+      </details>
     </section>
   </main>
 
-  <footer>симулятор по умолчанию · реальное железо: <code>MACDIAG_MODE=hw</code></footer>
+  <div id="dbg" class="dbg">
+    <div class="dbg-bar">
+      <button id="dbgToggle" class="ghost" data-i18n="Лог обмена">Лог обмена</button>
+      <span class="muted" id="dbgCount"></span>
+      <span style="flex:1"></span>
+      <label class="muted" style="font-size:12px; display:flex; align-items:center; gap:5px">
+        <input type="checkbox" id="dbgAuto" checked> <span data-i18n="авто">авто</span></label>
+      <button id="dbgCopy" class="ghost" data-i18n="Копировать">Копировать</button>
+      <button id="dbgClear" class="ghost" data-i18n="Очистить">Очистить</button>
+    </div>
+    <pre id="dbgLog" class="dbg-log hidden"></pre>
+  </div>
+
+  <footer data-i18n="режим переключается в шапке (Эмулятор / Железо)">режим переключается в шапке (Эмулятор / Железо)</footer>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

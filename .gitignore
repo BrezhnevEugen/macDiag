@@ -5,3 +5,21 @@ venv/
 *.egg-info/
 .DS_Store
 .env
+
+# Proprietary MB data library (CBF/CFF/SMR/VSG ~7.5GB) — keep local, never commit
+data/
+*.cbf
+*.CBF
+*.cff
+*.smr
+*.vsg
+*.sqlite
+*.sqlite-journal
+backend/mb/vediamo_catalog.json
+backend/mb/unlock_db.json
+
+# built J2534 driver binaries
+driver/*.dylib
+driver/*.so
+driver/*.dll
+

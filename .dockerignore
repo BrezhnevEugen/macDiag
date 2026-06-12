@@ -1,0 +1,12 @@
+.git
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.env
+data/
+*.md
+# keep the seed dataset; exclude any stray large libraries
+**/*.vsb
+**/*.pdf
