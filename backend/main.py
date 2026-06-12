@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -22,8 +23,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .j2534 import (make_passthru, UDSClient, UDSError, KWPClient, KWPError,
-                    ISO15765)
+from .j2534 import (make_passthru, PassThruError, UDSClient, UDSError,
+                    KWPClient, KWPError, ISO15765)
 from .j2534.passthru import OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE, OBD_FUNCTIONAL_TX
 from .mb import (MODULES, MODULES_BY_ID, modules_for, catalog_list,
                  DEFAULT_DASHBOARD, DIDS, decode_pid, describe_dtc)
@@ -54,8 +55,15 @@ class Session:
         self.baudrate = None
         self.connected = False
         self._vbatt = None           # cached battery voltage (read at connect)
+        # Guards connect/disconnect/reset transitions (per-request IO is
+        # serialized separately by bus.io_lock inside the UDS/KWP clients).
+        self._lock = threading.RLock()
 
     def connect(self):
+        with self._lock:
+            self._connect_locked()
+
+    def _connect_locked(self):
         if self.connected:
             return
         self.bus = make_passthru(MODE, DRIVER)
@@ -94,28 +102,30 @@ class Session:
         return self.channel
 
     def disconnect(self):
-        if self.bus and self.connected:
-            try:
-                if self.channel is not None:
-                    self.bus.disconnect(self.channel)
-                self.bus.close()
-            finally:
-                self.channel = None
-                self.baudrate = None
-                self.connected = False
+        with self._lock:
+            if self.bus and self.connected:
+                try:
+                    if self.channel is not None:
+                        self.bus.disconnect(self.channel)
+                    self.bus.close()
+                finally:
+                    self.channel = None
+                    self.baudrate = None
+                    self.connected = False
 
     def reset_channel(self):
         """Reopen the 500k channel — the only reliable way to clear accumulated
         flow-control filters on the Tactrix libusb build (it ignores both
         StopMsgFilter and the CLEAR_MSG_FILTERS ioctl, so filters pile up and
         StartMsgFilter eventually returns ERR_EXCEEDED_LIMIT / status 12)."""
-        try:
-            if self.channel is not None:
-                self.bus.disconnect(self.channel)
-        except Exception:  # noqa: BLE001
-            pass
-        self.channel = self.bus.connect(ISO15765, 500000)
-        time.sleep(0.02)  # let the freshly reopened channel settle before IO
+        with self._lock, self.bus.io_lock:   # don't reconnect mid-request
+            try:
+                if self.channel is not None:
+                    self.bus.disconnect(self.channel)
+            except Exception:  # noqa: BLE001
+                pass
+            self.channel = self.bus.connect(ISO15765, 500000)
+            time.sleep(0.02)  # let the freshly reopened channel settle before IO
 
     def client(self, tx: int, rx: int, protocol: str = "uds",
                baudrate: int = 500000):
@@ -967,32 +977,45 @@ def coding_write(req: WriteReq):
 async def ws_live(ws: WebSocket):
     await ws.accept()
     pids = list(DEFAULT_DASHBOARD)
+
+    def _read_frame(selection: list[int]) -> list:
+        # Blocking ctypes IO — runs in a worker thread; bus.io_lock inside the
+        # client serializes it against concurrent REST requests.
+        client = session.client(OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE)
+        frame = []
+        for pid in selection:
+            try:
+                frame.append(decode_pid(pid, client.read_pid(pid)))
+            except DiagError:
+                continue
+        return frame
+
     try:
         if not session.connected:
-            session.connect()
-        client = session.client(OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE)
+            await asyncio.to_thread(session.connect)
         while True:
-            # allow the client to update the PID selection
+            # allow the client to update the PID selection (short poll)
             try:
-                msg = await asyncio.wait_for(ws.receive_json(), timeout=0.001)
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=0.05)
                 if isinstance(msg, dict) and "pids" in msg:
-                    pids = [int(p) for p in msg["pids"]]
-            except (asyncio.TimeoutError, Exception):
+                    pids = [int(p) & 0xFF for p in msg["pids"]][:32]
+            except asyncio.TimeoutError:
                 pass
+            except WebSocketDisconnect:
+                return
+            except (ValueError, TypeError):
+                pass   # malformed JSON / pid list — keep the old selection
 
-            frame = []
-            for pid in pids:
-                try:
-                    raw = client.read_pid(pid)
-                    frame.append(decode_pid(pid, raw))
-                except UDSError:
-                    continue
+            frame = await asyncio.to_thread(_read_frame, pids)
             await ws.send_json({"frame": frame})
             await asyncio.sleep(0.25)
     except WebSocketDisconnect:
         pass
     except Exception as e:  # noqa: BLE001
-        await ws.send_json({"error": str(e)})
+        try:
+            await ws.send_json({"error": str(e)})
+        except Exception:  # noqa: BLE001 — client already gone
+            pass
 
 
 # ---------------------------------------------------------------------------

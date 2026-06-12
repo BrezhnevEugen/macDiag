@@ -25,6 +25,7 @@ import collections
 import ctypes
 import os
 import platform
+import threading
 import time
 from dataclasses import dataclass
 
@@ -146,6 +147,11 @@ class J2534PassThru:
                 "See README → 'Подключение Openport 2.0'.")
         self._lib = None
         self._device_id = _UL(0)
+        # Serializes all hardware IO: the J2534 driver is not thread-safe and
+        # only one flow-control filter is active at a time, so a request
+        # (filter + write + read loop) must not interleave with another.
+        self.io_lock = threading.RLock()
+        self.filter_owner: tuple | None = None   # (channel_id, rx_id, tx_id)
 
     # -- ctypes prototypes -------------------------------------------------
     def _bind(self):
@@ -210,6 +216,8 @@ class J2534PassThru:
         rc = self._lib.PassThruConnect(self._device_id, protocol, flags,
                                        baudrate, ctypes.byref(chan))
         self._check(rc, "PassThruConnect")
+        self.filter_owner = None   # fresh channel: no filter registered yet
+        self._filter_id = None
         return chan.value
 
     def disconnect(self, channel_id: int):
@@ -245,6 +253,7 @@ class J2534PassThru:
             ctypes.byref(fid))
         self._check(rc, "PassThruStartMsgFilter")
         self._filter_id = fid.value
+        self.filter_owner = (channel_id, rx_id, tx_id)
         return fid.value
 
     def write(self, channel_id: int, tx_id: int, data: bytes, timeout_ms=100):
@@ -309,6 +318,8 @@ class SimPassThru:
         self._seed: bytes | None = None
         self._unlocked = False
         self._coding: dict[int, bytes] = {}   # identifier -> stored coding blob
+        self.io_lock = threading.RLock()      # same contract as J2534PassThru
+        self.filter_owner: tuple | None = None
 
     # -- lifecycle ---------------------------------------------------------
     def open(self):
@@ -332,6 +343,7 @@ class SimPassThru:
 
     def set_filters(self, channel_id: int, rx_id: int, tx_id: int):
         self._rx_id = rx_id
+        self.filter_owner = (channel_id, rx_id, tx_id)
         return 1
 
     # -- I/O ---------------------------------------------------------------

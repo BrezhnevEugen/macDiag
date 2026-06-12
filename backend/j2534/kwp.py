@@ -18,6 +18,7 @@ KWP2000 services used here:
 
 from __future__ import annotations
 
+import threading
 import time
 
 from .passthru import OBD_PHYS_RX_BASE, trace
@@ -47,9 +48,20 @@ class KWPClient:
         self.channel_id = channel_id
         self.tx_id = tx_id
         self.rx_id = rx_id
-        self.bus.set_filters(channel_id, rx_id, tx_id)
+
+    def _ensure_filter(self):
+        """See UDSClient._ensure_filter — same single-active-filter contract."""
+        if getattr(self.bus, "filter_owner", None) != (self.channel_id,
+                                                       self.rx_id, self.tx_id):
+            self.bus.set_filters(self.channel_id, self.rx_id, self.tx_id)
 
     def _request(self, payload: bytes, timeout=1.0) -> bytes:
+        # Atomic request — see UDSClient._request for the rationale.
+        with getattr(self.bus, "io_lock", threading.RLock()):
+            self._ensure_filter()
+            return self._request_io(payload, timeout)
+
+    def _request_io(self, payload: bytes, timeout=1.0) -> bytes:
         t0 = time.time()
         hard = t0 + 3.0   # absolute cap so responsePending can't stall for 5s+
         tx = f"0x{self.tx_id:X}"

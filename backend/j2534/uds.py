@@ -7,6 +7,7 @@ hardware is used, so this layer works with whole service payloads.
 
 from __future__ import annotations
 
+import threading
 import time
 
 from .passthru import OBD_FUNCTIONAL_TX, OBD_PHYS_RX_BASE, trace
@@ -47,9 +48,24 @@ class UDSClient:
         self.channel_id = channel_id
         self.tx_id = tx_id
         self.rx_id = rx_id
-        self.bus.set_filters(channel_id, rx_id, tx_id)
+
+    def _ensure_filter(self):
+        """(Re)register our flow-control filter only if another client owned
+        the channel since our last request — keeps filter churn minimal on the
+        Tactrix build, where filters accumulate."""
+        if getattr(self.bus, "filter_owner", None) != (self.channel_id,
+                                                       self.rx_id, self.tx_id):
+            self.bus.set_filters(self.channel_id, self.rx_id, self.tx_id)
 
     def _request(self, payload: bytes, timeout=1.0) -> bytes:
+        # One diagnostic request (filter + write + read loop) is atomic: REST
+        # endpoints run in the threadpool and the live WebSocket polls the same
+        # channel, so without the lock responses cross-talk.
+        with getattr(self.bus, "io_lock", threading.RLock()):
+            self._ensure_filter()
+            return self._request_io(payload, timeout)
+
+    def _request_io(self, payload: bytes, timeout=1.0) -> bytes:
         t0 = time.time()
         hard = t0 + 3.0   # absolute cap so responsePending can't stall for 5s+
         tx = f"0x{self.tx_id:X}"
