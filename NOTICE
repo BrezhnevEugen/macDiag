@@ -1,0 +1,23 @@
+macDiag
+Copyright (c) 2026 Eugen Brezhnev
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software derived from the following MIT-licensed
+projects by jglim:
+
+  * UnlockECU — https://github.com/jglim/UnlockECU
+    (seed-key security-access algorithms ported in backend/mb/unlock.py;
+    ECU definitions database db.json fetched by tools/fetch_unlock_db.py;
+    test fixtures in tests/fixtures/ are extracted from that database)
+
+  * CaesarSuite — https://github.com/jglim/CaesarSuite
+    (partial ports of the Caesar CBF container format in
+    tools/caesar_comparam.py and tools/caesar_vc.py)
+
+The J2534 driver build script (tools/build_driver_macos.sh) builds the
+open-source driver from https://github.com/dschultzca/j2534.
+
+This repository contains NO proprietary Mercedes-Benz data. CBF/CFF/VSG
+files, derived databases and StarFinder archives are user-supplied and
+excluded from version control (see .gitignore).
