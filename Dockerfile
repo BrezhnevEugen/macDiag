@@ -27,6 +27,7 @@ ENV MACDIAG_MODE=sim \
     MACDIAG_CBF_DIR=/data/cbf \
     MACDIAG_CFF_DIR=/data/cff \
     MACDIAG_VSG_DIR=/data/vsg \
+    MACDIAG_BACKUP_FILE=/data/coding_backups.jsonl \
     PYTHONUNBUFFERED=1
 
 VOLUME ["/data"]

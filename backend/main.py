@@ -169,6 +169,22 @@ class Session:
 session = Session()
 
 
+def _backup_current(client, module: str | None, did: int,
+                    domain: str | None = None, new_hex: str = "") -> dict:
+    """Read and journal the current value of the identifier we are about to
+    overwrite (see mb/backup.py). Never blocks the write: a failed read is
+    recorded in the journal entry instead of raising."""
+    from .mb import backup
+    try:
+        old = client.read_did(did).hex().upper()
+        err = None
+    except Exception as e:  # noqa: BLE001 — any read failure must not stop us
+        old, err = None, str(e)
+    return backup.record(mode=MODE, module=module, ecu=_ecu_name_for(module),
+                         did=f"0x{did:X}", domain=domain,
+                         old=old, read_error=err, new=new_hex.upper())
+
+
 def _parse_hex(s: str, field: str = "value") -> bytes:
     """User-supplied hex string -> bytes, or a clean 400 instead of a 500."""
     try:
@@ -903,12 +919,21 @@ def coding_apply(req: ApplyReq):
     try:
         client = _module_client(req.module)
         client.session(0x03 if client.protocol == "uds" else 0x85)
+        bkp = _backup_current(client, req.module, int(use_lid, 16),
+                              domain=req.domain, new_hex=req.coding_hex)
         sec = _security_unlock(client, req.module, level) if req.unlock else None
         client.write_did(int(use_lid, 16), coding)
         return {"ok": True, "write_service": meta["write_service"],
-                "lid": use_lid, "security": sec}
+                "lid": use_lid, "security": sec, "backup": bkp}
     except DiagError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+
+
+@app.get("/api/coding/backups")
+def coding_backups(limit: int = 50):
+    """Pre-write backup journal (newest first) — for manual rollback."""
+    from .mb import backup
+    return {"path": str(backup.PATH), "entries": backup.recent(limit)}
 
 
 class DecodeReq(BaseModel):
@@ -970,11 +995,12 @@ def coding_write(req: WriteReq):
     try:
         client = _module_client(req.module)
         client.session(0x03 if client.protocol == "uds" else 0x85)
+        bkp = _backup_current(client, req.module, req.did, new_hex=req.value_hex)
         unlocked = None
         if req.unlock:
             unlocked = _security_unlock(client, req.module, req.level)
         client.write_did(req.did, value)
-        return {"ok": True, "security": unlocked}
+        return {"ok": True, "security": unlocked, "backup": bkp}
     except DiagError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
     except Exception as e:  # noqa: BLE001

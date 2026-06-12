@@ -75,6 +75,22 @@ def test_security_unlock_sim(client):
     assert body.get("seed"), "seed must be reported for the audit trail"
 
 
+def test_coding_write_backs_up_old_value(client, tmp_path, monkeypatch):
+    from backend.mb import backup
+    monkeypatch.setattr(backup, "PATH", tmp_path / "backups.jsonl")
+    client.post("/api/connect")
+    r = client.post("/api/coding/write",
+                    json={"did": 0x0110, "value_hex": "AABB", "unlock": True})
+    body = r.json()
+    assert body["ok"] is True
+    bkp = body["backup"]
+    assert bkp["saved"] is True
+    assert bkp["new"] == "AABB"
+    assert bkp["old"] or bkp["read_error"]      # old value read, or failure recorded
+    entries = client.get("/api/coding/backups").json()["entries"]
+    assert entries and entries[0]["new"] == "AABB"
+
+
 def test_coding_write_validates_hex(client):
     client.post("/api/connect")
     r = client.post("/api/coding/write", json={"did": 0x0110, "value_hex": "ZZZZ"})
