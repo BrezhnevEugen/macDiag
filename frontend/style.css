@@ -147,3 +147,10 @@ footer { text-align: center; color: var(--muted); padding: 16px; font-size: 12px
   background: var(--bg); border-top: 1px solid var(--line2); }
 .dbg-log .ok { color: var(--ok); } .dbg-log .nrc { color: var(--warn); }
 .dbg-log .err { color: var(--danger); } .dbg-log .to { color: var(--muted); }
+
+/* transient error toast (network/backend failures) */
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(12px);
+  background: #2a1416; border: 1px solid #4a1f22; color: var(--danger);
+  padding: 10px 18px; border-radius: 10px; font-size: 13px; z-index: 1000;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 80vw; }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }

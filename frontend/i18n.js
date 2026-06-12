@@ -3,6 +3,11 @@
 // app.js wraps dynamic strings in t(); static markup uses data-i18n / data-i18n-ph.
 
 const I18N = {
+  // ---- errors / toast ----
+  "Ошибка запроса: ": { en: "Request failed: ", de: "Anfrage fehlgeschlagen: " },
+  "Live: ": { en: "Live: ", de: "Live: " },
+  "Live-поток: ошибка соединения": { en: "Live stream: connection error", de: "Live-Stream: Verbindungsfehler" },
+
   // ---- header / tabs ----
   "Эмулятор": { en: "Simulator", de: "Simulator" },
   "Железо": { en: "Hardware", de: "Hardware" },

@@ -1,5 +1,19 @@
 const $ = (s) => document.querySelector(s);
 
+// escape server-sourced strings before inserting into innerHTML templates:
+// CBF/ECU names, DTC texts and error messages may contain <, & or quotes
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// transient error toast (network/backend failures that have no place in the UI)
+let _toastT = null;
+function toast(msg) {
+  let el = document.getElementById("toast");
+  if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(_toastT); _toastT = setTimeout(() => el.classList.remove("show"), 4000);
+}
+
 // global busy spinner: shows during any data read, after a short delay so
 // fast responses don't flash. Background polls pass quiet=true.
 let _busy = 0, _spinT = null;
@@ -11,7 +25,22 @@ function _busyDelta(d) {
 }
 const api = (p, opt, quiet) => {
   if (!quiet) _busyDelta(1);
-  return fetch(p, opt).then((r) => r.json()).finally(() => { if (!quiet) _busyDelta(-1); });
+  return fetch(p, opt)
+    .then(async (r) => {
+      const body = await r.json().catch(() => null);
+      if (body === null) throw new Error("HTTP " + r.status);
+      // FastAPI validation/HTTPException errors arrive as {detail}; expose them
+      // through the {error} convention every caller already handles
+      if (!r.ok && body.detail && !body.error)
+        body.error = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      return body;
+    })
+    .catch((e) => {
+      // network failure / dead backend: surface it instead of a silent hang
+      if (!quiet) toast(t("Ошибка запроса: ") + (e.message || e));
+      throw e;
+    })
+    .finally(() => { if (!quiet) _busyDelta(-1); });
 };
 
 // ---- tabs ----
@@ -22,6 +51,10 @@ document.querySelectorAll(".tabs button").forEach((b) => {
     b.classList.add("active");
     $("#" + b.dataset.tab).classList.add("active");
     if (b.dataset.tab === "overview") loadOverview();
+    // don't keep polling measurements in the background when leaving Live
+    if (b.dataset.tab !== "live" && measTimer) {
+      clearInterval(measTimer); measTimer = null; $("#measAuto").textContent = t("▶ Авто");
+    }
   };
 });
 
@@ -53,7 +86,7 @@ async function loadOverview() {
   const a = v.adapter;
   $("#ovAdapter").innerHTML = v.connected
     ? `<div class="kv">${v.voltage ?? "—"} <small>${t("В")}</small></div>` +
-      `<div class="dim">${t("режим: ")}${v.mode}${a ? " · fw " + (a.api || a.firmware || "") : ""}</div>` +
+      `<div class="dim">${t("режим: ")}${esc(v.mode)}${a ? " · fw " + esc(a.api || a.firmware || "") : ""}</div>` +
       `<div class="dim ok">${t("● подключено")}</div>`
     : `<div class="kv bad">${t("не подключено")}</div><div class="dim">${t("нажми «Подключить»")}</div>`;
   $("#ovBus").innerHTML = v.connected
@@ -66,16 +99,16 @@ function renderVehicle(v) {
   if (!v.vin) {
     $("#ovVehicle").innerHTML = v.connected
       ? `<div class="dim">${t("VIN не прочитан — нажми «Прочитать VIN»")}</div>` +
-        (v.vin_detail ? `<div class="dim" style="margin-top:4px; color:var(--warn)">${v.vin_detail}</div>` : "")
+        (v.vin_detail ? `<div class="dim" style="margin-top:4px; color:var(--warn)">${esc(v.vin_detail)}</div>` : "")
       : '<div class="dim">—</div>';
     return;
   }
   const d = v.decode || {};
   $("#ovVehicle").innerHTML =
-    `<div class="kv" style="font-size:16px">${v.vin}</div>` +
-    `<div class="dim">${d.maker || ""}</div>` +
-    `<div class="dim">${d.year ? t("год: ") + d.year + " · " : ""}WMI ${d.wmi || "?"} · VDS ${d.vds || "?"}` +
-    `${v.vin_source ? " · " + t("из ") + v.vin_source : ""}</div>`;
+    `<div class="kv" style="font-size:16px">${esc(v.vin)}</div>` +
+    `<div class="dim">${esc(d.maker || "")}</div>` +
+    `<div class="dim">${d.year ? t("год: ") + d.year + " · " : ""}WMI ${esc(d.wmi || "?")} · VDS ${esc(d.vds || "?")}` +
+    `${v.vin_source ? " · " + t("из ") + esc(v.vin_source) : ""}</div>`;
 }
 $("#ovReadVin").onclick = async () => {
   $("#ovVehicle").innerHTML = `<div class="dim">${t("чтение VIN…")}</div>`;
@@ -91,13 +124,13 @@ function scanCard(m) {
   const el = document.createElement("div");
   el.className = "ecucard" + (st === "online" || st === "present" ? "" : " off");
   let meta;
-  if (st === "online") meta = `${m.cbf || ""} · <span class="proto ${m.protocol}">${m.protocol.toUpperCase()}</span> · ${px(m.tx)}`;
+  if (st === "online") meta = `${esc(m.cbf || "")} · <span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span> · ${px(m.tx)}`;
   else if (st === "present") meta = `${t("на связи")} · ${t("нет DTC-сервиса")}`;
   else if (st === "adapter_error") meta = `<span class="bad">${t("Ошибка адаптера")}</span>`;
   else meta = t("нет ответа");
   el.innerHTML =
     `<div class="top"><span class="sdot" style="background:${SCAN_DOT[st] || "var(--muted)"}"></span>` +
-    `<span class="nm">${m.name}</span>` +
+    `<span class="nm">${esc(m.name)}</span>` +
     `${st === "online" && m.dtc ? `<span class="faults">${m.dtc} DTC</span>` : ""}</div>` +
     `<div class="meta">${meta}</div>`;
   if (st === "online" || st === "present") el.onclick = () => goModule(m.id, "dtc", m.name);
@@ -148,7 +181,7 @@ $("#ovGw") && ($("#ovGw").onclick = async () => {
 let _gw = null;
 function renderGateway(info) {
   const box = $("#gwInfo");
-  if (!info || info.error) { box.innerHTML = info && info.error ? `<div class="warn">⚠ ${info.error}</div>` : ""; return; }
+  if (!info || info.error) { box.innerHTML = info && info.error ? `<div class="warn">⚠ ${esc(info.error)}</div>` : ""; return; }
   _gw = info;
   // auto-select the detected chassis everywhere + show engine on the vehicle card
   if (info.chassis_token) {
@@ -159,19 +192,19 @@ function renderGateway(info) {
   }
   if (info.engine) {
     const v = $("#ovVehicle");
-    if (v) v.innerHTML = `<div class="kv" style="font-size:16px">${info.engine}</div>` +
-      `<div class="dim">${[info.chassis, info.body].filter(Boolean).join(" · ")}</div>`;
+    if (v) v.innerHTML = `<div class="kv" style="font-size:16px">${esc(info.engine)}</div>` +
+      `<div class="dim">${esc([info.chassis, info.body].filter(Boolean).join(" · "))}</div>`;
   }
   const present = (info.options || []).filter((o) => /vorhanden|aktiv|erlaubt/i.test(o.value) && !/nicht/i.test(o.value));
   const ecus = (info.ecus || []).filter((e) => e.present);
   box.innerHTML =
     `<div class="card"><div class="clabel">${t("комплектация (из шлюза)")}</div>` +
-    `<div class="kv" style="font-size:18px">${info.engine || "—"}</div>` +
-    `<div class="dim">${[info.chassis, info.body].filter(Boolean).join(" · ")}</div>` +
+    `<div class="kv" style="font-size:18px">${esc(info.engine || "—")}</div>` +
+    `<div class="dim">${esc([info.chassis, info.body].filter(Boolean).join(" · "))}</div>` +
     (present.length ? `<div class="chips" style="margin-top:10px">` +
-      present.map((o) => `<span class="chip">${o.name.replace(/^SA:\s*/, "")}</span>`).join("") + `</div>` : "") +
+      present.map((o) => `<span class="chip">${esc(o.name.replace(/^SA:\s*/, ""))}</span>`).join("") + `</div>` : "") +
     (ecus.length ? `<div class="clabel" style="margin-top:12px">${t("блоки по конфигурации")}</div>` +
-      `<div class="chips">` + ecus.map((e) => `<span class="chip">${e.name}</span>`).join("") + `</div>` : "") +
+      `<div class="chips">` + ecus.map((e) => `<span class="chip">${esc(e.name)}</span>`).join("") + `</div>` : "") +
     `</div>`;
 }
 
@@ -224,7 +257,7 @@ async function loadModules(chassis = "") {
     const r = await api("/api/modules" + (chassis ? "?chassis=" + chassis : ""));
     modules = r.modules || [];
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted">${t("Бэкенд недоступен")} (${e})${t(". Запусти uvicorn backend.main:app")}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="7" class="muted">${t("Бэкенд недоступен")} (${esc(e.message || e)})${t(". Запусти uvicorn backend.main:app")}</td></tr>`;
     return;
   }
   // table
@@ -239,16 +272,16 @@ async function loadModules(chassis = "") {
     const src = m.id_source === "cbf"
       ? ` <span class="muted" title="${t("из Vediamo CBF")}">✓</span>`
       : ` <span class="muted" title="${t("стандартная адресация, требует проверки")}">?</span>`;
-    tr.innerHTML = `<td>${m.name}</td><td><code>${m.cbf || ""}</code></td>
+    tr.innerHTML = `<td>${esc(m.name)}</td><td><code>${esc(m.cbf || "")}</code></td>
       <td><code>0x${m.tx.toString(16).toUpperCase()}</code>${src}</td>
       <td><code>0x${m.rx.toString(16).toUpperCase()}</code></td>
-      <td><span class="proto ${m.protocol}">${m.protocol.toUpperCase()}</span></td>
+      <td><span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span></td>
       <td class="muted">${baud}</td>
-      <td class="muted">${part}</td>
+      <td class="muted">${esc(part)}</td>
       <td style="white-space:nowrap">
-        <button class="linkbtn" data-act="id" data-id="${m.id}">${t("ID")}</button>
-        <button class="linkbtn" data-act="dtc" data-id="${m.id}" data-name="${m.name}">${t("Ошибки")}</button>
-        <button class="linkbtn" data-act="coding" data-id="${m.id}" data-name="${m.name}">${t("Код")}</button>
+        <button class="linkbtn" data-act="id" data-id="${esc(m.id)}">${t("ID")}</button>
+        <button class="linkbtn" data-act="dtc" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Ошибки")}</button>
+        <button class="linkbtn" data-act="coding" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Код")}</button>
       </td>`;
     tb.appendChild(tr);
   });
@@ -261,7 +294,7 @@ async function loadModules(chassis = "") {
     el.innerHTML = `<option value="" disabled selected>${t("— выбери модуль —")}</option>`;
     modules.forEach((m) => {
       const o = document.createElement("option");
-      o.value = m.id; o.textContent = `${m.name}  ·  0x${m.tx.toString(16).toUpperCase()}`;
+      o.value = m.id; o.textContent = `${m.name}  ·  0x${m.tx.toString(16).toUpperCase()}`;   // textContent — safe
       el.appendChild(o);
     });
   });
@@ -285,12 +318,12 @@ function renderCatalog(filter = "") {
     const tr = document.createElement("tr");
     const baud = e.baudrate ? (e.baudrate / 1000).toFixed(e.baudrate % 1000 ? 1 : 0) + "k" : "—";
     const act = e.can_request
-      ? `<button class="linkbtn" data-dtc="${e.ecu}">DTC</button> <button class="linkbtn" data-id="${e.ecu}">${t("ID")}</button>`
+      ? `<button class="linkbtn" data-dtc="${esc(e.ecu)}">DTC</button> <button class="linkbtn" data-id="${esc(e.ecu)}">${t("ID")}</button>`
       : `<span class="muted" title="${t("нет CAN id в CBF")}">—</span>`;
-    tr.innerHTML = `<td><code>${e.ecu}</code></td><td>${(e.protocol || "").toUpperCase()}</td>
+    tr.innerHTML = `<td><code>${esc(e.ecu)}</code></td><td>${esc((e.protocol || "").toUpperCase())}</td>
       <td><code>${hx(e.can_request)}</code></td><td><code>${hx(e.can_response)}</code></td>
-      <td class="muted">${baud}</td><td>${(e.chassis || []).join(", ")}</td>
-      <td class="muted">${(e.part_numbers && e.part_numbers[0]) || "—"}</td><td>${act}</td>`;
+      <td class="muted">${baud}</td><td>${esc((e.chassis || []).join(", "))}</td>
+      <td class="muted">${esc((e.part_numbers && e.part_numbers[0]) || "—")}</td><td>${act}</td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll("button[data-dtc]").forEach((b) => (b.onclick = () => dtcForEcu(b.dataset.dtc)));
@@ -313,9 +346,9 @@ async function identify(id) {
   const r = await api("/api/identify?module=" + encodeURIComponent(id));
   const box = $("#modInfo");
   box.classList.remove("hidden");
-  if (r.error) { box.innerHTML = `<b>${t("Ошибка:")}</b> ${r.error}`; return; }
-  box.innerHTML = "<b>" + id + "</b><br>" +
-    Object.entries(r.info).map(([k, v]) => `${k}: <code>${v ?? "—"}</code>`).join("<br>");
+  if (r.error) { box.innerHTML = `<b>${t("Ошибка:")}</b> ${esc(r.error)}`; return; }
+  box.innerHTML = "<b>" + esc(id) + "</b><br>" +
+    Object.entries(r.info).map(([k, v]) => `${esc(k)}: <code>${esc(v ?? "—")}</code>`).join("<br>");
 }
 
 // ---- DTC ----
@@ -329,13 +362,13 @@ $("#dtcRead").onclick = async () => {
   note.classList.remove("hidden");
   const via = r.via ? " · " + r.via : "";
   if (r.status === "adapter_error") {
-    note.innerHTML = `<span class="bad">⚠ ${t("Ошибка адаптера")}: ${r.detail || ""}</span>`; return;
+    note.innerHTML = `<span class="bad">⚠ ${t("Ошибка адаптера")}: ${esc(r.detail || "")}</span>`; return;
   }
   if (r.status === "no_response") {
     note.innerHTML = `<span class="bad">✗ ${t("Нет ответа от блока")}</span>`; return;
   }
   if (r.status === "present") {
-    note.innerHTML = `<span style="color:var(--warn)">● ${t("Блок на связи, но не отдаёт ошибки")} (${r.detail || ""})</span>`; return;
+    note.innerHTML = `<span style="color:var(--warn)">● ${t("Блок на связи, но не отдаёт ошибки")} (${esc(r.detail || "")})</span>`; return;
   }
   if (!r.dtcs || !r.dtcs.length) {
     note.innerHTML = `<span class="ok">✓ ${t("Блок ответил: ошибок нет")}${via}</span>`; return;
@@ -343,8 +376,8 @@ $("#dtcRead").onclick = async () => {
   note.classList.add("hidden");
   r.dtcs.forEach((d) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td><button class="linkbtn dtc-code" data-code="${d.code}"><code>${d.code}</code></button></td><td>${d.status}</td>
-      <td>${d.description || ""}</td><td><code>${d.raw}</code></td>`;
+    tr.innerHTML = `<td><button class="linkbtn dtc-code" data-code="${esc(d.code)}"><code>${esc(d.code)}</code></button></td><td>${esc(d.status)}</td>
+      <td>${esc(d.description || "")}</td><td><code>${esc(d.raw)}</code></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll(".dtc-code").forEach((b) => (b.onclick = () => drillDtc(b.dataset.code)));
@@ -370,30 +403,30 @@ async function drillDtc(code) {
   const c = await api("/api/diag/context?code=" + encodeURIComponent(code) +
     (mod ? "&module=" + encodeURIComponent(mod) : "") + "&lang=" + (window.LANG || "ru"));
   const L = c.labels || {};
-  const li = (arr) => (arr || []).map((x) => `<li>${x}</li>`).join("");
+  const li = (arr) => (arr || []).map((x) => `<li>${esc(x)}</li>`).join("");
   const steps = (c.checks || []).map((s, i) =>
-    `${i ? '<span class="arrow">→</span>' : ""}<span class="step">${i + 1}. ${s}</span>`).join("");
+    `${i ? '<span class="arrow">→</span>' : ""}<span class="step">${i + 1}. ${esc(s)}</span>`).join("");
   const lk = c.linked || { measurement: [], service: [] };
-  const grpChip = (g) => `<button class="chip linkbtn" data-grp="${g.path}">${g.title}</button>`;
+  const grpChip = (g) => `<button class="chip linkbtn" data-grp="${esc(g.path)}">${esc(g.title)}</button>`;
   const imgs = (c.media || []).filter((m) => m.kind !== "doc");
   const docs = (c.media || []).filter((m) => m.kind === "doc");
   const media = imgs.map((m) =>
-    `<figure style="margin:0 0 14px"><figcaption class="dim" style="margin:6px 0">${m.title}</figcaption>` +
-    `<img src="${m.src}" alt="${m.title}" style="width:100%; display:block; border:1px solid var(--line); border-radius:10px; background:var(--bg)"></figure>`).join("");
+    `<figure style="margin:0 0 14px"><figcaption class="dim" style="margin:6px 0">${esc(m.title)}</figcaption>` +
+    `<img src="${esc(m.src)}" alt="${esc(m.title)}" style="width:100%; display:block; border:1px solid var(--line); border-radius:10px; background:var(--bg)"></figure>`).join("");
   const docsHtml = docs.length
     ? `<h3>${t("Описание")} (StarFinder)</h3><div class="chips">` +
-      docs.map((d) => `<a class="chip" href="${d.src}" target="_blank" rel="noopener" style="text-decoration:none">📄 ${d.title}</a>`).join("") + `</div>`
+      docs.map((d) => `<a class="chip" href="${esc(d.src)}" target="_blank" rel="noopener" style="text-decoration:none">📄 ${esc(d.title)}</a>`).join("") + `</div>`
     : "";
   const comp = (c.component && c.component.name)
-    ? `<div class="dim" style="margin-top:4px">${t("ЭБУ")}: <code>${c.component.code}</code> · ${c.component.name}</div>` : "";
+    ? `<div class="dim" style="margin-top:4px">${t("ЭБУ")}: <code>${esc(c.component.code)}</code> · ${esc(c.component.name)}</div>` : "";
   box.innerHTML =
     `<div class="card">` +
     `<div style="display:flex; justify-content:space-between; align-items:start; gap:12px">` +
-    `<div><b style="font-size:15px"><code>${c.code}</code> — ${c.description}</b>` +
-    `<div class="dim" style="margin-top:4px">${L.area || ""}: ${c.area || ""}</div>` + comp + `</div>` +
+    `<div><b style="font-size:15px"><code>${esc(c.code)}</code> — ${esc(c.description)}</b>` +
+    `<div class="dim" style="margin-top:4px">${esc(L.area || "")}: ${esc(c.area || "")}</div>` + comp + `</div>` +
     `<button class="ghost" id="drillClose">${t("Закрыть")}</button></div>` +
-    `<h3 style="margin-top:16px">${L.causes || ""}</h3><ul style="margin:0; padding-left:20px">${li(c.causes)}</ul>` +
-    `<h3>${L.checks || ""}</h3><div class="flow">${steps}</div>` +
+    `<h3 style="margin-top:16px">${esc(L.causes || "")}</h3><ul style="margin:0; padding-left:20px">${li(c.causes)}</ul>` +
+    `<h3>${esc(L.checks || "")}</h3><div class="flow">${steps}</div>` +
     ((lk.measurement && lk.measurement.length) ?
       `<h3>${t("Связанные группы измерений")}</h3><div class="chips">${lk.measurement.map(grpChip).join("")}</div>` : "") +
     ((lk.service && lk.service.length) ?
@@ -421,9 +454,10 @@ $("#liveStart").onclick = () => {
   ws = new WebSocket(`${proto}://${location.host}/ws/live`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.error) { console.warn(msg.error); return; }
+    if (msg.error) { toast(t("Live: ") + msg.error); return; }
     renderGauges(msg.frame);
   };
+  ws.onerror = () => toast(t("Live-поток: ошибка соединения"));
   ws.onclose = () => { $("#liveStart").disabled = false; $("#liveStop").disabled = true; };
   $("#liveStart").disabled = true; $("#liveStop").disabled = false;
 };
@@ -483,7 +517,7 @@ async function initMeas() {
   const sel = $("#measEcu");
   if (!r.available) { sel.innerHTML = `<option>${t(".vsg недоступны")}</option>`; return; }
   sel.innerHTML = `<option value="">${t("— выбери ЭБУ —")}</option>` +
-    r.ecus.map((e) => `<option>${e}</option>`).join("");
+    r.ecus.map((e) => `<option>${esc(e)}</option>`).join("");
 }
 $("#measEcu") && ($("#measEcu").onchange = async () => {
   const ecu = $("#measEcu").value;
@@ -493,11 +527,11 @@ $("#measEcu") && ($("#measEcu").onchange = async () => {
   if (!ecu) return;
   const g = await api("/api/measure/groups?module=" + encodeURIComponent(ecu) + "&lang=" + (window.LANG || "ru"));
   gsel.innerHTML = g.measurement.map((m) =>
-    `<option value="${m.path}">${m.title} (${m.count})  ·  ${m.auto ? "CBF" : ".vsg"}</option>`).join("")
+    `<option value="${esc(m.path)}">${esc(m.title)} (${m.count})  ·  ${m.auto ? "CBF" : ".vsg"}</option>`).join("")
     || `<option value="">${t("нет измерительных групп")}</option>`;
   // service procedures -> select
   $("#svcSelect").innerHTML = `<option value="">${t("— выбери процедуру —")} (${g.service.length})</option>` +
-    g.service.map((s) => `<option value="${s.path}">${s.title} · ${s.steps} ${t("шаг.")}</option>`).join("");
+    g.service.map((s) => `<option value="${esc(s.path)}">${esc(s.title)} · ${s.steps} ${t("шаг.")}</option>`).join("");
   // immediately show the first group's cards for the newly selected ECU
   const first = gsel.options[0] && gsel.options[0].value;
   if (first) { gsel.value = first; openGroup(first); }
@@ -515,13 +549,13 @@ $("#svcSelect") && ($("#svcSelect").onchange = async () => {
   const d = g.description || {};
   const routines = (g.services || []).filter((s) => s.kind === "routine");
   const params = (g.services || []).filter((s) => s.kind !== "routine");
-  const li = (arr) => arr.map((s) => `<span class="chip">${s.label || s.job}</span>`).join("");
+  const li = (arr) => arr.map((s) => `<span class="chip">${esc(s.label || s.job)}</span>`).join("");
   const flow = routines.map((s, i) =>
-    `${i ? '<span class="arrow">→</span>' : ""}<span class="step">${s.label || s.job}</span>`).join("");
+    `${i ? '<span class="arrow">→</span>' : ""}<span class="step">${esc(s.label || s.job)}</span>`).join("");
   box.innerHTML =
-    `<div class="card"><b>${d.title || g.title}</b>` +
-    (d.what ? `<div class="muted" style="margin-top:6px"><b>${t("Что:")}</b> ${d.what}<br><b>${t("Когда:")}</b> ${d.when}<br><b>${t("Как:")}</b> ${d.how}</div>` : "") +
-    (d.warn ? `<div class="warn" style="margin-top:10px">⚠ ${d.warn}</div>` : "") +
+    `<div class="card"><b>${esc(d.title || g.title)}</b>` +
+    (d.what ? `<div class="muted" style="margin-top:6px"><b>${t("Что:")}</b> ${esc(d.what)}<br><b>${t("Когда:")}</b> ${esc(d.when)}<br><b>${t("Как:")}</b> ${esc(d.how)}</div>` : "") +
+    (d.warn ? `<div class="warn" style="margin-top:10px">⚠ ${esc(d.warn)}</div>` : "") +
     `<div style="margin-top:14px; font-size:13px"><b>${t("Шаги")} (${routines.length})</b>` +
     `<div class="flow">${flow || `<span class="muted">${t("нет актуаторных шагов")}</span>`}</div></div>` +
     `<div style="margin-top:14px; font-size:13px"><b>${t("Параметры")} (${params.length})</b><div class="chips">${li(params)}</div></div>` +
@@ -547,10 +581,10 @@ async function openGroup(path) {
     const steps = (g.services || []).filter((s) => s.kind === "routine");
     const stepList = steps.length
       ? `<div class="muted" style="margin-top:8px"><b>${t("Шаги (актуаторы):")}</b> ` +
-        steps.map((s) => s.label || s.job).join(" · ") + "</div>" : "";
-    box.innerHTML = `<b>${d.title}</b><div class="muted" style="margin-top:6px">` +
-      `<b>${t("Что:")}</b> ${d.what}<br><b>${t("Когда:")}</b> ${d.when}<br><b>${t("Как:")}</b> ${d.how}</div>` +
-      (d.warn ? `<div class="warn" style="margin-top:10px">⚠ ${d.warn}</div>` : "") + stepList;
+        esc(steps.map((s) => s.label || s.job).join(" · ")) + "</div>" : "";
+    box.innerHTML = `<b>${esc(d.title)}</b><div class="muted" style="margin-top:6px">` +
+      `<b>${t("Что:")}</b> ${esc(d.what)}<br><b>${t("Когда:")}</b> ${esc(d.when)}<br><b>${t("Как:")}</b> ${esc(d.how)}</div>` +
+      (d.warn ? `<div class="warn" style="margin-top:10px">⚠ ${esc(d.warn)}</div>` : "") + stepList;
     box.classList.remove("hidden");
   } else {
     box.classList.add("hidden");
@@ -595,7 +629,7 @@ $("#vcLoad").onclick = async () => {
   const r = await api("/api/coding/domains" + (mod ? "?module=" + mod : ""));
   const sel = $("#vcDomain");
   if (!r.available) { sel.innerHTML = `<option>${t("CBF недоступны (MACDIAG_CBF_DIR)")}</option>`; return; }
-  sel.innerHTML = r.domains.map((d) => `<option value="${d.domain}" data-dump="${d.dump_size}" data-rlid="${d.read_lid || ""}" data-wlid="${d.write_lid || ""}" data-sec="${d.sec_level || 0}">${d.domain} (${d.fragment_count} ${t("парам.")}, ${d.dump_size}B, LID ${d.read_lid || "?"})</option>`).join("");
+  sel.innerHTML = r.domains.map((d) => `<option value="${esc(d.domain)}" data-dump="${d.dump_size}" data-rlid="${esc(d.read_lid || "")}" data-wlid="${esc(d.write_lid || "")}" data-sec="${d.sec_level || 0}">${esc(d.domain)} (${d.fragment_count} ${t("парам.")}, ${d.dump_size}B, LID ${esc(d.read_lid || "?")})</option>`).join("");
   sel.onchange = () => {
     const o = sel.selectedOptions[0];
     if (o) $("#vcLid").value = o.dataset.rlid || "";
@@ -626,13 +660,13 @@ function renderVC(frags) {
     let valCell;
     if (f.options && f.options.length > 1) {
       valCell = `<select data-frag="${encodeURIComponent(f.name)}">` +
-        f.options.map((o) => `<option${o === f.current ? " selected" : ""}>${o}</option>`).join("") +
+        f.options.map((o) => `<option${o === f.current ? " selected" : ""}>${esc(o)}</option>`).join("") +
         `</select>`;
     } else {
-      valCell = `<span class="muted">${f.current ?? f.value ?? "—"}</span>`;
+      valCell = `<span class="muted">${esc(f.current ?? f.value ?? "—")}</span>`;
     }
-    tr.innerHTML = `<td>${f.name}${f.approx ? ' <span class="muted" title="длина приблизительна">~</span>' : ""}</td>
-      <td class="muted">${f.byte_bit_pos}+${f.bit_length}</td><td>${valCell}</td>`;
+    tr.innerHTML = `<td>${esc(f.name)}${f.approx ? ' <span class="muted" title="длина приблизительна">~</span>' : ""}</td>
+      <td class="muted">${esc(f.byte_bit_pos)}+${esc(f.bit_length)}</td><td>${valCell}</td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll("select[data-frag]").forEach((s) => (s.onchange = () => changeVC(s)));
@@ -690,14 +724,14 @@ window.onLangChange = () => {
 let _dbgOpen = false;
 function dbgFmt(e) {
   const ts = new Date(e.ts * 1000).toLocaleTimeString();
-  if (e.kind === "error") return `<span class="err">${ts}  ⚠ ${e.fn} status ${e.status} ${e.msg || ""}</span>`;
+  if (e.kind === "error") return `<span class="err">${ts}  ⚠ ${esc(e.fn)} status ${esc(e.status)} ${esc(e.msg || "")}</span>`;
   const proto = ((e.kind || "") + "   ").slice(0, 3).toUpperCase();
   let tail, cls;
   if (e.timeout) { tail = "… timeout"; cls = "to"; }
-  else if (e.nrc) { tail = "✗ NRC " + e.nrc; cls = "nrc"; }
-  else { tail = "✓ " + (e.resp || ""); cls = "ok"; }
-  const rx = e.rx ? " [" + e.rx + "]" : "";
-  return `${ts}  ${proto}  ${e.tx} → ${e.req}${rx}  ${e.ms}ms  <span class="${cls}">${tail}</span>`;
+  else if (e.nrc) { tail = "✗ NRC " + esc(e.nrc); cls = "nrc"; }
+  else { tail = "✓ " + esc(e.resp || ""); cls = "ok"; }
+  const rx = e.rx ? " [" + esc(e.rx) + "]" : "";
+  return `${ts}  ${proto}  ${esc(e.tx)} → ${esc(e.req)}${rx}  ${e.ms}ms  <span class="${cls}">${tail}</span>`;
 }
 function dbgPlain(e) {
   const ts = new Date(e.ts * 1000).toLocaleTimeString();
