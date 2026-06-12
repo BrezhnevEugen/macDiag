@@ -26,7 +26,8 @@ _YEAR = {**{str(d): 2000 + d for d in range(1, 10)},  # 1..9 -> 2001..2009
 
 def decode_vin(vin: str) -> dict:
     vin = (vin or "").strip().upper()
-    out = {"vin": vin, "valid": len(vin) == 17}
+    # valid = right length AND only legal VIN characters (no I/O/Q, no symbols)
+    out = {"vin": vin, "valid": len(vin) == 17 and not _VIN_OK.search(vin)}
     if len(vin) < 11:
         return out
     out["wmi"] = vin[:3]

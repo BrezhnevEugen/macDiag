@@ -18,7 +18,7 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -167,6 +167,15 @@ class Session:
 
 
 session = Session()
+
+
+def _parse_hex(s: str, field: str = "value") -> bytes:
+    """User-supplied hex string -> bytes, or a clean 400 instead of a 500."""
+    try:
+        return bytes.fromhex((s or "").replace(" ", ""))
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail=f"invalid {field}: not a hex string")
 
 
 def _module_client(module_id: str | None):
@@ -890,11 +899,12 @@ def coding_apply(req: ApplyReq):
     # level from the service's security level when present, else default 1
     sec_level = meta.get("write_sec_level")
     level = req.level if req.level is not None else (sec_level or 1)
+    coding = _parse_hex(req.coding_hex, "coding_hex")   # validate before touching the ECU
     try:
         client = _module_client(req.module)
         client.session(0x03 if client.protocol == "uds" else 0x85)
         sec = _security_unlock(client, req.module, level) if req.unlock else None
-        client.write_did(int(use_lid, 16), bytes.fromhex(req.coding_hex))
+        client.write_did(int(use_lid, 16), coding)
         return {"ok": True, "write_service": meta["write_service"],
                 "lid": use_lid, "security": sec}
     except DiagError as e:
@@ -912,7 +922,7 @@ def coding_decode(req: DecodeReq):
     """Decode a coding string into named options for a VC domain."""
     from .mb import varcoding
     ecu = _ecu_name_for(req.module) or req.module
-    res = varcoding.decode(ecu, req.domain, bytes.fromhex(req.coding_hex))
+    res = varcoding.decode(ecu, req.domain, _parse_hex(req.coding_hex, "coding_hex"))
     if res is None:
         return JSONResponse({"error": "domain/CBF not found"}, status_code=404)
     return res
@@ -932,7 +942,7 @@ def coding_encode(req: EncodeReq):
     from .mb import varcoding
     ecu = _ecu_name_for(req.module) or req.module
     try:
-        new = varcoding.encode(ecu, req.domain, bytes.fromhex(req.coding_hex),
+        new = varcoding.encode(ecu, req.domain, _parse_hex(req.coding_hex, "coding_hex"),
                                req.fragment, req.option)
         if new is None:
             return JSONResponse({"error": "domain/CBF not found"}, status_code=404)
@@ -956,13 +966,14 @@ def coding_write(req: WriteReq):
     Performs Security Access (0x27) first when the module requires it. Use with
     care: wrong values can disable an ECU. Read and save the current value first.
     """
+    value = _parse_hex(req.value_hex, "value_hex")      # validate before touching the ECU
     try:
         client = _module_client(req.module)
         client.session(0x03 if client.protocol == "uds" else 0x85)
         unlocked = None
         if req.unlock:
             unlocked = _security_unlock(client, req.module, req.level)
-        client.write_did(req.did, bytes.fromhex(req.value_hex))
+        client.write_did(req.did, value)
         return {"ok": True, "security": unlocked}
     except DiagError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)

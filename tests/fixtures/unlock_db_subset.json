@@ -1,0 +1,950 @@
+[
+ {
+  "EcuName": "ANC_205M",
+  "Aliases": [],
+  "AccessLevel": 11,
+  "SeedLength": 8,
+  "KeyLength": 4,
+  "Provider": "DaimlerStandardSecurityAlgo",
+  "Origin": "ANC_205M_18_33_01_20181616021630",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "A891859C",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "BMS298",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 8,
+  "KeyLength": 4,
+  "Provider": "DaimlerStandardSecurityAlgoMod",
+  "Origin": "BMS298_19_46_02_20191912041922",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "3ADE68B3",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "kA",
+    "Value": "3C0F6138",
+    "DataType": "Int64"
+   },
+   {
+    "Key": "kC",
+    "Value": "5E63944B",
+    "DataType": "Int64"
+   }
+  ]
+ },
+ {
+  "EcuName": "BC_MFA2",
+  "Aliases": [],
+  "AccessLevel": 55,
+  "SeedLength": 8,
+  "KeyLength": 4,
+  "Provider": "DaimlerStandardSecurityAlgoRefG",
+  "Origin": "BC_MFA2_17_09_01_20184914104936",
+  "Parameters": [
+   {
+    "Key": "K_refG",
+    "Value": "E845149C",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "CR4_NFZ",
+  "Aliases": [],
+  "AccessLevel": 5,
+  "SeedLength": 2,
+  "KeyLength": 2,
+  "Provider": "ESPSecurityAlgoLevel1",
+  "Origin": "CR4_T1N_CR4_NFZ_17_29_02_J",
+  "Parameters": []
+ },
+ {
+  "EcuName": "IC172",
+  "Aliases": [],
+  "AccessLevel": 3,
+  "SeedLength": 8,
+  "KeyLength": 8,
+  "Provider": "IC172Algo1",
+  "Origin": "IC172_@Feezex-@Flo354",
+  "Parameters": []
+ },
+ {
+  "EcuName": "IC172",
+  "Aliases": [],
+  "AccessLevel": 113,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "IC172Algo2",
+  "Origin": "IC172_@Feezex",
+  "Parameters": []
+ },
+ {
+  "EcuName": "IC204_1979021500",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 8,
+  "KeyLength": 8,
+  "Provider": "IC204",
+  "Origin": "ic204_fw_1979021500",
+  "Parameters": [
+   {
+    "Key": "Salt",
+    "Value": "5F769CC116B6173D",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "KI203",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "KI203Algo",
+  "Origin": "KI203_203_0223_L7_@Feezex-@rumator-@VladLupashevskyi",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "30BACD45",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "KI221",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 8,
+  "KeyLength": 7,
+  "Provider": "KI221Algo1",
+  "Origin": "KI221_2214420821_001_L7",
+  "Parameters": [
+   {
+    "Key": "Level",
+    "Value": "7",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "K",
+    "Value": "B16905DC",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "KI221",
+  "Aliases": [],
+  "AccessLevel": 253,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "KI221Algo2",
+  "Origin": "KI221_Multi",
+  "Parameters": [
+   {
+    "Key": "Xor",
+    "Value": "47392578",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "Add",
+    "Value": "72922483",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "KI164",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 8,
+  "KeyLength": 7,
+  "Provider": "KIAlgo1",
+  "Origin": "KI164_2514420000_0070_L7_@Feezex",
+  "Parameters": [
+   {
+    "Key": "Level",
+    "Value": "7",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "K",
+    "Value": "5F27851F",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "ME97",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 2,
+  "KeyLength": 2,
+  "Provider": "PowertrainBoschContiSecurityAlgo1",
+  "Origin": "ME97_ME97_13_10_01_J",
+  "Parameters": [
+   {
+    "Key": "ubTable",
+    "Value": "FCAD1E5941992FCD",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "Mask",
+    "Value": "4300",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "ME97",
+  "Aliases": [],
+  "AccessLevel": 5,
+  "SeedLength": 2,
+  "KeyLength": 2,
+  "Provider": "PowertrainBoschContiSecurityAlgo2",
+  "Origin": "ME97_ME97_13_10_01_J",
+  "Parameters": [
+   {
+    "Key": "Table",
+    "Value": "37C1A8179AE3745B",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "uwMasc",
+    "Value": "4108",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "CRD2_NFZ",
+  "Aliases": [],
+  "AccessLevel": 11,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "PowertrainDelphiSecurityAlgo",
+  "Origin": "CRD2_NFZ_CRD2_NFZ_13_15_01_J",
+  "Parameters": [
+   {
+    "Key": "D_VALUE_0",
+    "Value": "BC19C877",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_1",
+    "Value": "1602ABF1",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_2",
+    "Value": "97441633",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_3",
+    "Value": "51C8A711",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_4",
+    "Value": "07021321",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_5",
+    "Value": "09041985",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_6",
+    "Value": "CCBB16FC",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_7",
+    "Value": "19293055",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_0",
+    "Value": "77BC19C8",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_1",
+    "Value": "F11602AB",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_2",
+    "Value": "33974416",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_3",
+    "Value": "1151C8A7",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_4",
+    "Value": "21070213",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_5",
+    "Value": "85090419",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_6",
+    "Value": "FCCCBB16",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_7",
+    "Value": "F0510F99",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "CPC3",
+  "Aliases": [],
+  "AccessLevel": 11,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "PowertrainSecurityAlgo",
+  "Origin": "CPC3_18_13_01_20181627121644",
+  "Parameters": [
+   {
+    "Key": "i1",
+    "Value": "0",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "i2",
+    "Value": "3",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "i3",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "i4",
+    "Value": "3",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "i5",
+    "Value": "2",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "i6",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j1",
+    "Value": "3",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j2",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j3",
+    "Value": "7",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j4",
+    "Value": "5",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j5",
+    "Value": "2",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "j6",
+    "Value": "0",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "X00",
+    "Value": "E3",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X01",
+    "Value": "28",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X02",
+    "Value": "8E",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X03",
+    "Value": "C6",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X10",
+    "Value": "2E",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X11",
+    "Value": "78",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X12",
+    "Value": "96",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X13",
+    "Value": "39",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X20",
+    "Value": "E6",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X21",
+    "Value": "15",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X22",
+    "Value": "88",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X23",
+    "Value": "94",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X30",
+    "Value": "1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X31",
+    "Value": "50",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X32",
+    "Value": "6A",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X33",
+    "Value": "F7",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X40",
+    "Value": "89",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X41",
+    "Value": "E6",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X42",
+    "Value": "48",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X43",
+    "Value": "EA",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X50",
+    "Value": "A8",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X51",
+    "Value": "43",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X52",
+    "Value": "71",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X53",
+    "Value": "AA",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X60",
+    "Value": "F1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X61",
+    "Value": "9D",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X62",
+    "Value": "27",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X63",
+    "Value": "34",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X70",
+    "Value": "49",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X71",
+    "Value": "3D",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X72",
+    "Value": "A5",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "X73",
+    "Value": "74",
+    "DataType": "Byte"
+   }
+  ]
+ },
+ {
+  "EcuName": "CR6NFZ",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "PowertrainSecurityAlgo2",
+  "Origin": "CR6NFZ_13_23_01_20190017120041",
+  "Parameters": [
+   {
+    "Key": "ii1",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "ii2",
+    "Value": "2",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "ii3",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "ii4",
+    "Value": "0",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "ii5",
+    "Value": "1",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "ii6",
+    "Value": "0",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj1",
+    "Value": "5",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj2",
+    "Value": "2",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj3",
+    "Value": "7",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj4",
+    "Value": "2",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj5",
+    "Value": "7",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "jj6",
+    "Value": "5",
+    "DataType": "Int32"
+   },
+   {
+    "Key": "XX00",
+    "Value": "34",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX01",
+    "Value": "F5",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX02",
+    "Value": "C6",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX03",
+    "Value": "10",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX10",
+    "Value": "A3",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX11",
+    "Value": "99",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX12",
+    "Value": "D1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX13",
+    "Value": "1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX20",
+    "Value": "38",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX21",
+    "Value": "9",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX22",
+    "Value": "F3",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX23",
+    "Value": "84",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX30",
+    "Value": "37",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX31",
+    "Value": "CF",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX32",
+    "Value": "A8",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX33",
+    "Value": "49",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX40",
+    "Value": "30",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX41",
+    "Value": "C7",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX42",
+    "Value": "E1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX43",
+    "Value": "B7",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX50",
+    "Value": "BE",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX51",
+    "Value": "27",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX52",
+    "Value": "B4",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX53",
+    "Value": "F9",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX60",
+    "Value": "DD",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX61",
+    "Value": "45",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX62",
+    "Value": "E6",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX63",
+    "Value": "A1",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX70",
+    "Value": "72",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX71",
+    "Value": "85",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX72",
+    "Value": "BA",
+    "DataType": "Byte"
+   },
+   {
+    "Key": "XX73",
+    "Value": "A2",
+    "DataType": "Byte"
+   }
+  ]
+ },
+ {
+  "EcuName": "CRD3",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "PowertrainSecurityAlgo3",
+  "Origin": "CRD3_Aloulou-@WSorban",
+  "Parameters": []
+ },
+ {
+  "EcuName": "CR4_NFZ",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "PowertrainSecurityAlgoNFZ",
+  "Origin": "CR4_T1N_CR4_NFZ_17_29_02_J",
+  "Parameters": [
+   {
+    "Key": "D_VALUE_0",
+    "Value": "79E06289",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_1",
+    "Value": "87782AAE",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_2",
+    "Value": "5E590E30",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_3",
+    "Value": "E710FA68",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_4",
+    "Value": "47ED1797",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_5",
+    "Value": "7728AEDA",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_6",
+    "Value": "6735DF87",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "D_VALUE_7",
+    "Value": "AE5788DA",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_0",
+    "Value": "8979E062",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_1",
+    "Value": "AE87782A",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_2",
+    "Value": "305E590E",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_3",
+    "Value": "68E710FA",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_4",
+    "Value": "9747ED17",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_5",
+    "Value": "DA7728AE",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_6",
+    "Value": "876735DF",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "G_VALUE_7",
+    "Value": "DAAE5788",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "EGS52",
+  "Aliases": [],
+  "AccessLevel": 5,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "VGSSecurityAlgo",
+  "Origin": "EGS52_27_05@VladLupashevskyi-@rnd-ash",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "5AA5A5A5",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "EGS52",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 2,
+  "KeyLength": 2,
+  "Provider": "VGSSecurityAlgo2Bytes",
+  "Origin": "EGS52_27_01_27_02@VladLupashevskyi-@rnd-ash",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "5AA5",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "EGS53",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 4,
+  "KeyLength": 4,
+  "Provider": "VGSSecurityAlgoExt",
+  "Origin": "EGS53_27_05@VladLupashevskyi-@rnd-ash",
+  "Parameters": [
+   {
+    "Key": "X",
+    "Value": "6BB6B6B6",
+    "DataType": "ByteArray"
+   },
+   {
+    "Key": "M",
+    "Value": "49949494",
+    "DataType": "ByteArray"
+   }
+  ]
+ },
+ {
+  "EcuName": "CR3_UP",
+  "Aliases": [],
+  "AccessLevel": 1,
+  "SeedLength": 3,
+  "KeyLength": 3,
+  "Provider": "XorAlgo",
+  "Origin": "CR3_UP_EXPERIMENTAL_@Feezex",
+  "Parameters": [
+   {
+    "Key": "K",
+    "Value": "9F5A68",
+    "DataType": "ByteArray"
+   }
+  ]
+ }
+]

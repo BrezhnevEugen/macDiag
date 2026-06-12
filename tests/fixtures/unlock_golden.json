@@ -1,0 +1,156 @@
+[
+ {
+  "ecu": "ANC_205M",
+  "level": 11,
+  "provider": "DaimlerStandardSecurityAlgo",
+  "seed": "3de26fa7743d3767",
+  "key": "949530dc"
+ },
+ {
+  "ecu": "BMS298",
+  "level": 1,
+  "provider": "DaimlerStandardSecurityAlgoMod",
+  "seed": "5beba7a33fae0da0",
+  "key": "7ddc450b"
+ },
+ {
+  "ecu": "BC_MFA2",
+  "level": 55,
+  "provider": "DaimlerStandardSecurityAlgoRefG",
+  "seed": "f27f1db76d1d97d1",
+  "key": "db013728"
+ },
+ {
+  "ecu": "CR4_NFZ",
+  "level": 5,
+  "provider": "ESPSecurityAlgoLevel1",
+  "seed": "eead",
+  "key": "234d"
+ },
+ {
+  "ecu": "IC172",
+  "level": 3,
+  "provider": "IC172Algo1",
+  "seed": "25ec4383876522a8",
+  "key": "90200cb955454355"
+ },
+ {
+  "ecu": "IC172",
+  "level": 113,
+  "provider": "IC172Algo2",
+  "seed": "0ca7b683",
+  "key": "f7a72236"
+ },
+ {
+  "ecu": "IC204_1979021500",
+  "level": 1,
+  "provider": "IC204",
+  "seed": "76083a4478a39b74",
+  "key": "9b9feba5f4a0af08"
+ },
+ {
+  "ecu": "KI203",
+  "level": 1,
+  "provider": "KI203Algo",
+  "seed": "a74d940e",
+  "key": "9fcee3b1"
+ },
+ {
+  "ecu": "KI221",
+  "level": 1,
+  "provider": "KI221Algo1",
+  "seed": "a656a34b9e0bd933",
+  "key": "07ced748e50000"
+ },
+ {
+  "ecu": "KI221",
+  "level": 253,
+  "provider": "KI221Algo2",
+  "seed": "a9b9c818",
+  "key": "54c183d1"
+ },
+ {
+  "ecu": "KI164",
+  "level": 1,
+  "provider": "KIAlgo1",
+  "seed": "adeb813045a49372",
+  "key": "072528a209ffff"
+ },
+ {
+  "ecu": "ME97",
+  "level": 1,
+  "provider": "PowertrainBoschContiSecurityAlgo1",
+  "seed": "1211",
+  "key": "021d"
+ },
+ {
+  "ecu": "ME97",
+  "level": 5,
+  "provider": "PowertrainBoschContiSecurityAlgo2",
+  "seed": "578e",
+  "key": "1f1f"
+ },
+ {
+  "ecu": "CRD2_NFZ",
+  "level": 11,
+  "provider": "PowertrainDelphiSecurityAlgo",
+  "seed": "3fa3f33a",
+  "key": "0b36a40d"
+ },
+ {
+  "ecu": "CPC3",
+  "level": 11,
+  "provider": "PowertrainSecurityAlgo",
+  "seed": "fc906534",
+  "key": "ebc68b9b"
+ },
+ {
+  "ecu": "CR6NFZ",
+  "level": 1,
+  "provider": "PowertrainSecurityAlgo2",
+  "seed": "17d1522d",
+  "key": "efb6b353"
+ },
+ {
+  "ecu": "CRD3",
+  "level": 1,
+  "provider": "PowertrainSecurityAlgo3",
+  "seed": "b90e4d1b",
+  "key": "03bbc323"
+ },
+ {
+  "ecu": "CR4_NFZ",
+  "level": 1,
+  "provider": "PowertrainSecurityAlgoNFZ",
+  "seed": "93e67b6d",
+  "key": "cee9796d"
+ },
+ {
+  "ecu": "EGS52",
+  "level": 5,
+  "provider": "VGSSecurityAlgo",
+  "seed": "55fd733a",
+  "key": "6111cf7b"
+ },
+ {
+  "ecu": "EGS52",
+  "level": 1,
+  "provider": "VGSSecurityAlgo2Bytes",
+  "seed": "136d",
+  "key": "e44e"
+ },
+ {
+  "ecu": "EGS53",
+  "level": 1,
+  "provider": "VGSSecurityAlgoExt",
+  "seed": "257efb4d",
+  "key": "00fe311c"
+ },
+ {
+  "ecu": "CR3_UP",
+  "level": 1,
+  "provider": "XorAlgo",
+  "seed": "812a67",
+  "key": "1e700f"
+ }
+]

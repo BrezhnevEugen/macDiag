@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import time
 
-from .passthru import OBD_FUNCTIONAL_TX, OBD_PHYS_RX_BASE, trace
+from .passthru import OBD_PHYS_RX_BASE, trace
 
 NRC = {
     0x10: "generalReject",

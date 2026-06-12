@@ -244,6 +244,7 @@ def cylinder_layout(module: dict | None = None, count: int = 6, lang: str = "ru"
     parts = [
         f'<svg viewBox="0 0 {int(W)} {H}" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Roboto,sans-serif">',
         f'<rect width="{int(W)}" height="{H}" fill="{_BG}"/>',
+        f'<text x="20" y="28" fill="{_TXT}" font-size="14" font-weight="600">{escape(title)}</text>',
     ]
     banks = [("A", 70), ("B", 150)] if count > 4 else [("", 110)]
     n = 1

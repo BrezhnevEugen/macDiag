@@ -18,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import struct
 import sys
 from pathlib import Path
 
@@ -278,7 +277,7 @@ def _parse_fragment(r: Reader, frag_table: int, index: int,
     r.seek(fbase)
     bf = Bitflags(r.u32())
     name_ctf = rf_int(r, bf, 4, -1)
-    desc_ctf = rf_int(r, bf, 4, -1)
+    rf_int(r, bf, 4, -1)                      # DescriptionCTF
     rf_int(r, bf, 1)                          # ReadAccessLevel
     write_level = rf_int(r, bf, 1)           # WriteAccessLevel
     rf_int(r, bf, 2)                          # ByteOrder
@@ -317,7 +316,7 @@ def _parse_domain(r: Reader, base: int, strings: list) -> dict:
     bf = Bitflags(r.u16())
     qualifier = rf_str(r, bf, base)
     name_ctf = rf_int(r, bf, 4, -1)
-    desc_ctf = rf_int(r, bf, 4, -1)
+    rf_int(r, bf, 4, -1)                      # DescriptionCTF
     read_svc = rf_str(r, bf, base)
     write_svc = rf_str(r, bf, base)
     frag_count = rf_int(r, bf, 4)

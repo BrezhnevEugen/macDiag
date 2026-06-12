@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest ruff
+      - name: Lint
+        run: ruff check backend tools tests
+      - name: Test (simulator mode, no proprietary data)
+        run: pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t macdiag:ci .
+      - name: Smoke-test container
+        run: |
+          docker run -d --rm -p 8000:8000 --name macdiag macdiag:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/api/status && break
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/api/status | grep -q '"mode":"sim"'
+          docker stop macdiag
