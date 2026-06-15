@@ -367,6 +367,26 @@ def _present_value(value) -> bool:
     return any(word in s for word in ("vorhanden", "aktiv", "erlaubt", "present", "installed"))
 
 
+def _decode_can_b_bitmap(coding: bytes, source: str) -> list[dict]:
+    """Decode ZGW164 CAN-B bitmaps through the CBF's CAN-B SG bit map.
+
+    310700 is the configured/Soll 16-byte variant coding. 310800 is an 8-byte
+    actual/Ist snapshot, but ZGW164 uses the same SG bit positions for the
+    visible CAN-B ECUs in this range.
+    """
+    from .mb import varcoding
+    dec = varcoding.decode("ZGW164", "VCD_CAN_B_Soll_Konfiguration", coding)
+    out = []
+    for f in (dec or {}).get("fragments", []):
+        name = f.get("name")
+        if not name:
+            continue
+        out.append({"name": name, "value": f.get("current"),
+                    "present": _present_value(f.get("current")),
+                    "bit": f.get("byte_bit_pos"), "source": source})
+    return out
+
+
 def _gateway_module(name: str, present: bool = True) -> dict:
     """One ECU exactly as reported by the gateway, enriched only by exact CBF/DB
     matches. If no CAN ids are known, keep it visible but not probeable."""
@@ -564,7 +584,7 @@ def gateway_info():
         return JSONResponse({"error": "не подключено"}, status_code=400)
     from .mb import varcoding
     out = {"engine": None, "chassis": None, "body": None,
-           "options": [], "ecus": [], "modules": [],
+           "options": [], "ecus": [], "can_ist": [], "modules": [],
            "gateway_raw": {}, "decoded_sources": []}
     try:
         session.reset_channel()
@@ -587,25 +607,22 @@ def gateway_info():
                 out["options"].append({"name": nm, "value": cur})
         except Exception as e:  # noqa: BLE001
             out["code_error"] = str(e)
-        # CAN-Ist is a real gateway snapshot too, but in ZGW164 it is an 8-byte
-        # status bitmap (SG00..SG47) rather than named ECU fragments. Keep the
-        # raw response visible instead of pretending to know ECU names.
+        # CAN-Ist is a real gateway snapshot too. It is shorter than CAN-Soll,
+        # but the ZGW164 CBF uses the same CAN-B SG bit positions for ECU names.
         try:
             resp = cl.raw_request(bytes.fromhex("310800"))
             out["gateway_raw"]["can_ist_310800"] = resp.hex().upper()
+            out["can_ist"] = _decode_can_b_bitmap(resp[2:], "310800")
+            out["decoded_sources"].append(
+                {"service": "310800", "domain": "VCD_CAN_B_Soll_Konfiguration",
+                 "label": "CAN-B Ist Konfiguration"})
         except Exception as e:  # noqa: BLE001
             out["can_ist_error"] = str(e)
         # CAN-B configured ECU list
         try:
             resp = cl.raw_request(bytes.fromhex("310700"))
             out["gateway_raw"]["can_soll_310700"] = resp.hex().upper()
-            dec = varcoding.decode("ZGW164", "VCD_CAN_B_Soll_Konfiguration", resp[2:])
-            out["ecus"] = []
-            for f in (dec or {}).get("fragments", []):
-                name = f.get("name")
-                present = _present_value(f.get("current"))
-                out["ecus"].append({"name": name, "value": f.get("current"),
-                                    "present": present})
+            out["ecus"] = _decode_can_b_bitmap(resp[2:], "310700")
             out["modules"] = [_gateway_module(e["name"], e["present"])
                               for e in out["ecus"] if e["present"] and e.get("name")]
             out["decoded_sources"].append(
@@ -613,6 +630,16 @@ def gateway_info():
                  "label": "CAN-B Soll Konfiguration"})
         except Exception as e:  # noqa: BLE001
             out["ecu_error"] = str(e)
+        actual = {e["name"] for e in out["can_ist"] if e.get("present")}
+        configured = {e["name"] for e in out["ecus"] if e.get("present")}
+        if actual or configured:
+            out["can_compare"] = {
+                "actual": sorted(actual),
+                "configured": sorted(configured),
+                "both": sorted(actual & configured),
+                "actual_only": sorted(actual - configured),
+                "configured_only": sorted(configured - actual),
+            }
         # chassis token for the app (e.g. "BR 164" + body "X…" -> "X164")
         import re as _re
         num = _re.search(r"\d{3}", out.get("chassis") or "")

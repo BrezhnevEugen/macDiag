@@ -215,6 +215,12 @@ function renderGateway(info) {
   }
   const present = (info.options || []).filter((o) => /vorhanden|aktiv|erlaubt/i.test(o.value) && !/nicht/i.test(o.value));
   const ecus = (info.ecus || []).filter((e) => e.present);
+  const canIst = (info.can_ist || []).filter((e) => e.present);
+  const compare = info.can_compare || {};
+  const compareLine = [
+    (compare.actual_only || []).length ? `${t("только CAN-Ist")}: ${(compare.actual_only || []).map(esc).join(", ")}` : "",
+    (compare.configured_only || []).length ? `${t("только CAN-Soll")}: ${(compare.configured_only || []).map(esc).join(", ")}` : "",
+  ].filter(Boolean).join(" · ");
   const raw = info.gateway_raw || {};
   const sources = (info.decoded_sources || []).map((s) => `${esc(s.label || s.domain)} (${esc(s.service)})`).join(", ");
   box.innerHTML =
@@ -228,6 +234,9 @@ function renderGateway(info) {
       present.map((o) => `<span class="chip">${esc(o.name.replace(/^SA:\s*/, ""))}</span>`).join("") + `</div>` : "") +
     (ecus.length ? `<div class="clabel" style="margin-top:12px">${t("блоки CAN-B по конфигурации")}</div>` +
       `<div class="chips">` + ecus.map((e) => `<span class="chip">${esc(e.name)}</span>`).join("") + `</div>` : "") +
+    (canIst.length ? `<div class="clabel" style="margin-top:12px">${t("блоки CAN-B фактически")}</div>` +
+      `<div class="chips">` + canIst.map((e) => `<span class="chip">${esc(e.name)}</span>`).join("") + `</div>` : "") +
+    (compareLine ? `<div class="dim" style="margin-top:8px">${t("расхождение")}: ${compareLine}</div>` : "") +
     `</div>`;
   renderGatewayModuleState(_gatewayModules);
   renderModuleTable(_gatewayModules);

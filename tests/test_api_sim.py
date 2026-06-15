@@ -127,9 +127,13 @@ def test_gateway_modules_are_source_of_truth(client):
     assert modules, body
     assert body["gateway_raw"]["can_ist_310800"].startswith("7108")
     assert body["gateway_raw"]["can_soll_310700"].startswith("7107")
-    assert body["decoded_sources"][0]["service"] == "310700"
+    assert {s["service"] for s in body["decoded_sources"]} >= {"310800", "310700"}
     names = {m["ecu"] for m in modules}
     assert {"PTS164", "KI164"} <= names
+    actual_names = {e["name"] for e in body["can_ist"] if e["present"]}
+    assert {"EZS164", "SAMV164", "PTS164", "KI164"} <= actual_names
+    assert "EZS164" in body["can_compare"]["actual_only"]
+    assert "WSS" in body["can_compare"]["configured_only"]
     assert all(m["source"] == "gateway" for m in modules)
     assert all("configured" in m for m in modules)
 
