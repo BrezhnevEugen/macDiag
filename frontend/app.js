@@ -117,14 +117,26 @@ $("#ovReadVin").onclick = async () => {
 function ovMetric(label, value, cls) {
   return `<div class="metric"><div class="m-lbl">${label}</div><div class="m-val ${cls || ""}">${value}</div></div>`;
 }
-const SCAN_DOT = { online: "var(--ok)", present: "var(--uds)", silent: "var(--muted)", adapter_error: "var(--danger)" };
+const SCAN_DOT = {
+  configured: "var(--warn)",
+  online: "var(--ok)",
+  present: "var(--uds)",
+  silent: "var(--muted)",
+  adapter_error: "var(--danger)",
+};
 function scanCard(m) {
   const px = (x) => (typeof x === "number" ? "0x" + x.toString(16).toUpperCase() : "");
   const st = m.state || (m.online ? "online" : "silent");
   const el = document.createElement("div");
-  el.className = "ecucard" + (st === "online" || st === "present" ? "" : " off");
+  const canOpen = (st === "online" || st === "present" || st === "configured") && m.address_known !== false;
+  el.className = "ecucard" + (canOpen ? "" : " off");
   let meta;
-  if (st === "online") meta = `${esc(m.cbf || "")} · <span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span> · ${px(m.tx)}`;
+  const proto = m.protocol ? `<span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span>` : "";
+  if (st === "configured") {
+    meta = m.address_known === false
+      ? `${t("из шлюза")} · ${t("нет CAN id в CBF")}`
+      : `${t("из шлюза")} · ${proto} · ${px(m.tx)} · ${t("ещё не опрошен")}`;
+  } else if (st === "online") meta = `${esc(m.cbf || "")} · ${proto} · ${px(m.tx)}`;
   else if (st === "present") meta = `${t("на связи")} · ${t("нет DTC-сервиса")}`;
   else if (st === "adapter_error") meta = `<span class="bad">${t("Ошибка адаптера")}</span>`;
   else meta = t("нет ответа");
@@ -133,7 +145,7 @@ function scanCard(m) {
     `<span class="nm">${esc(m.name)}</span>` +
     `${st === "online" && m.dtc ? `<span class="faults">${m.dtc} DTC</span>` : ""}</div>` +
     `<div class="meta">${meta}</div>`;
-  if (st === "online" || st === "present") el.onclick = () => goModule(m.id, "dtc", m.name);
+  if (canOpen) el.onclick = () => goModule(m.id, "dtc", m.name);
   return el;
 }
 function scanMetrics(online, count, total, protos) {
@@ -143,13 +155,18 @@ function scanMetrics(online, count, total, protos) {
     ovMetric(t("протокол"), protos || "—");
 }
 let _scanES = null;
+let _gatewayModules = null;
 $("#ovScan").onclick = () => {
   const ch = $("#ovChassis").value;
   if (_scanES) { _scanES.close(); _scanES = null; }
   $("#ovScanStat").textContent = t("сканирую…");
   const grid = $("#ovScanGrid"); grid.innerHTML = "";
   let count = 0, protos = "—";
-  const es = new EventSource("/api/vehicle/scan/stream" + (ch ? "?chassis=" + ch : ""));
+  const gwNames = (_gatewayModules || []).map((m) => m.ecu || m.id).filter(Boolean);
+  const qs = gwNames.length
+    ? "?modules=" + encodeURIComponent(gwNames.join(","))
+    : (ch ? "?chassis=" + ch : "");
+  const es = new EventSource("/api/vehicle/scan/stream" + qs);
   _scanES = es;
   es.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
@@ -183,6 +200,7 @@ function renderGateway(info) {
   const box = $("#gwInfo");
   if (!info || info.error) { box.innerHTML = info && info.error ? `<div class="warn">⚠ ${esc(info.error)}</div>` : ""; return; }
   _gw = info;
+  _gatewayModules = (info.modules || []).filter((m) => m.configured !== false);
   // auto-select the detected chassis everywhere + show engine on the vehicle card
   if (info.chassis_token) {
     ["#ovChassis", "#chassis"].forEach((s) => {
@@ -197,15 +215,35 @@ function renderGateway(info) {
   }
   const present = (info.options || []).filter((o) => /vorhanden|aktiv|erlaubt/i.test(o.value) && !/nicht/i.test(o.value));
   const ecus = (info.ecus || []).filter((e) => e.present);
+  const raw = info.gateway_raw || {};
+  const sources = (info.decoded_sources || []).map((s) => `${esc(s.label || s.domain)} (${esc(s.service)})`).join(", ");
   box.innerHTML =
     `<div class="card"><div class="clabel">${t("комплектация (из шлюза)")}</div>` +
     `<div class="kv" style="font-size:18px">${esc(info.engine || "—")}</div>` +
     `<div class="dim">${esc([info.chassis, info.body].filter(Boolean).join(" · "))}</div>` +
+    (sources ? `<div class="dim">${t("декодировано")}: ${sources}</div>` : "") +
+    (raw.can_ist_310800 ? `<div class="dim mono">CAN-Ist 310800: ${esc(raw.can_ist_310800)}</div>` : "") +
+    (raw.can_soll_310700 ? `<div class="dim mono">CAN-Soll 310700: ${esc(raw.can_soll_310700)}</div>` : "") +
     (present.length ? `<div class="chips" style="margin-top:10px">` +
       present.map((o) => `<span class="chip">${esc(o.name.replace(/^SA:\s*/, ""))}</span>`).join("") + `</div>` : "") +
-    (ecus.length ? `<div class="clabel" style="margin-top:12px">${t("блоки по конфигурации")}</div>` +
+    (ecus.length ? `<div class="clabel" style="margin-top:12px">${t("блоки CAN-B по конфигурации")}</div>` +
       `<div class="chips">` + ecus.map((e) => `<span class="chip">${esc(e.name)}</span>`).join("") + `</div>` : "") +
     `</div>`;
+  renderGatewayModuleState(_gatewayModules);
+  renderModuleTable(_gatewayModules);
+  setModuleDropdowns(_gatewayModules.filter((m) => m.address_known !== false));
+}
+
+function renderGatewayModuleState(modules) {
+  const grid = $("#ovScanGrid");
+  grid.innerHTML = "";
+  modules.forEach((m) => grid.appendChild(scanCard({ ...m, state: "configured" })));
+  const known = modules.filter((m) => m.address_known !== false);
+  const protos = [...new Set(known.map((m) => (m.protocol || "").toUpperCase()).filter(Boolean))].join(" / ");
+  scanMetrics(0, modules.length, 0, protos || t("из шлюза"));
+  $("#ovScanStat").textContent = modules.length
+    ? `${t("CAN-B из шлюза: ")}${modules.length}; ${t("с CAN id: ")}${known.length}`
+    : t("CAN-B конфигурация не вернула блоки");
 }
 
 // ---- connection ----
@@ -250,6 +288,60 @@ $("#connBtn").onclick = async () => {
 };
 
 // ---- modules dropdowns ----
+function moduleHex(x) {
+  return typeof x === "number" ? "0x" + x.toString(16).toUpperCase() : "—";
+}
+function moduleLabel(m) {
+  const src = m.source === "gateway" ? ` · ${t("из шлюза")}` : "";
+  return `${m.name || m.ecu || m.id}  ·  ${moduleHex(m.tx)}${src}`;
+}
+function setModuleDropdowns(modules) {
+  ["#dtcModule", "#codeModule"].forEach((sel) => {
+    const el = $(sel);
+    el.innerHTML = `<option value="" disabled selected>${t("— выбери модуль —")}</option>`;
+    modules.forEach((m) => {
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = moduleLabel(m);   // textContent — safe
+      el.appendChild(o);
+    });
+  });
+}
+function renderModuleTable(modules) {
+  const tb = $("#modTable tbody");
+  tb.innerHTML = "";
+  if (!modules.length) {
+    tb.innerHTML = `<tr><td colspan="8" class="muted">${t("Нет модулей для этого шасси")}</td></tr>`;
+    return;
+  }
+  modules.forEach((m) => {
+    const tr = document.createElement("tr");
+    const part = (m.part_numbers && m.part_numbers[0]) || "—";
+    const baud = m.baudrate ? (m.baudrate / 1000).toFixed(m.baudrate % 1000 ? 1 : 0) + "k" : "—";
+    const src = m.source === "gateway"
+      ? ` <span class="muted" title="${t("из шлюза")}">G</span>`
+      : m.id_source === "cbf"
+        ? ` <span class="muted" title="${t("из Vediamo CBF")}">✓</span>`
+        : ` <span class="muted" title="${t("стандартная адресация, требует проверки")}">?</span>`;
+    const canAct = m.address_known !== false;
+    const actions = canAct
+      ? `<button class="linkbtn" data-act="id" data-id="${esc(m.id)}">${t("ID")}</button>
+        <button class="linkbtn" data-act="dtc" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Ошибки")}</button>
+        <button class="linkbtn" data-act="coding" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Код")}</button>`
+      : `<span class="muted">${t("нет CAN id в CBF")}</span>`;
+    tr.innerHTML = `<td>${esc(m.name || m.ecu || m.id)}</td><td><code>${esc(m.cbf || m.ecu || "")}</code></td>
+      <td><code>${moduleHex(m.tx)}</code>${src}</td>
+      <td><code>${moduleHex(m.rx)}</code></td>
+      <td>${m.protocol ? `<span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span>` : "—"}</td>
+      <td class="muted">${baud}</td>
+      <td class="muted">${esc(part)}</td>
+      <td style="white-space:nowrap">${actions}</td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll("button[data-act]").forEach((b) =>
+    (b.onclick = () => goModule(b.dataset.id, b.dataset.act, b.dataset.name)));
+}
+
 async function loadModules(chassis = "") {
   const tb = $("#modTable tbody");
   let modules = [];
@@ -257,49 +349,14 @@ async function loadModules(chassis = "") {
     const r = await api("/api/modules" + (chassis ? "?chassis=" + chassis : ""));
     modules = r.modules || [];
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted">${t("Бэкенд недоступен")} (${esc(e.message || e)})${t(". Запусти uvicorn backend.main:app")}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" class="muted">${t("Бэкенд недоступен")} (${esc(e.message || e)})${t(". Запусти uvicorn backend.main:app")}</td></tr>`;
     return;
   }
-  // table
-  tb.innerHTML = "";
-  if (!modules.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted">${t("Нет модулей для этого шасси")}</td></tr>`;
-  }
-  modules.forEach((m) => {
-    const tr = document.createElement("tr");
-    const part = (m.part_numbers && m.part_numbers[0]) || "—";
-    const baud = m.baudrate ? (m.baudrate / 1000).toFixed(m.baudrate % 1000 ? 1 : 0) + "k" : "—";
-    const src = m.id_source === "cbf"
-      ? ` <span class="muted" title="${t("из Vediamo CBF")}">✓</span>`
-      : ` <span class="muted" title="${t("стандартная адресация, требует проверки")}">?</span>`;
-    tr.innerHTML = `<td>${esc(m.name)}</td><td><code>${esc(m.cbf || "")}</code></td>
-      <td><code>0x${m.tx.toString(16).toUpperCase()}</code>${src}</td>
-      <td><code>0x${m.rx.toString(16).toUpperCase()}</code></td>
-      <td><span class="proto ${esc(m.protocol)}">${esc(m.protocol.toUpperCase())}</span></td>
-      <td class="muted">${baud}</td>
-      <td class="muted">${esc(part)}</td>
-      <td style="white-space:nowrap">
-        <button class="linkbtn" data-act="id" data-id="${esc(m.id)}">${t("ID")}</button>
-        <button class="linkbtn" data-act="dtc" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Ошибки")}</button>
-        <button class="linkbtn" data-act="coding" data-id="${esc(m.id)}" data-name="${esc(m.name)}">${t("Код")}</button>
-      </td>`;
-    tb.appendChild(tr);
-  });
-  tb.querySelectorAll("button[data-act]").forEach((b) =>
-    (b.onclick = () => goModule(b.dataset.id, b.dataset.act, b.dataset.name)));
+  renderModuleTable(modules);
   loadCatalog($("#chassis").value);
-  // dropdowns
-  ["#dtcModule", "#codeModule"].forEach((sel) => {
-    const el = $(sel);
-    el.innerHTML = `<option value="" disabled selected>${t("— выбери модуль —")}</option>`;
-    modules.forEach((m) => {
-      const o = document.createElement("option");
-      o.value = m.id; o.textContent = `${m.name}  ·  0x${m.tx.toString(16).toUpperCase()}`;   // textContent — safe
-      el.appendChild(o);
-    });
-  });
+  setModuleDropdowns(modules);
 }
-$("#chassis").onchange = (e) => loadModules(e.target.value);
+$("#chassis").onchange = (e) => { _gatewayModules = null; $("#gwInfo").innerHTML = ""; loadModules(e.target.value); };
 
 let _catalog = [];
 async function loadCatalog(chassis = "") {

@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from .j2534 import (make_passthru, PassThruError, UDSClient, UDSError,
                     KWPClient, KWPError, ISO15765)
 from .j2534.passthru import OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE, OBD_FUNCTIONAL_TX
-from .mb import (MODULES, MODULES_BY_ID, modules_for, catalog_list,
+from .mb import (MODULES, MODULES_BY_ID, CATALOG, modules_for, catalog_list,
                  DEFAULT_DASHBOARD, DIDS, decode_pid, describe_dtc)
 from .mb.seedkey import get_algo
 
@@ -206,10 +206,13 @@ def _module_client(module_id: str | None):
     # 2. any ECU in the database, addressed by its real CBF CAN ids
     if module_id:
         e = ecu_db.get(module_id)
+        if not e:
+            e = CATALOG.get(module_id)
         if e and e.get("can_request"):
             return session.client(e["can_request"], e["can_response"],
                                   e.get("protocol") or "uds",
                                   e.get("baudrate") or 500000)
+        raise HTTPException(status_code=404, detail=f"unknown module: {module_id}")
     # 3. default: engine ECU / generic OBD physical address (UDS)
     return session.client(OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE, "uds")
 
@@ -342,11 +345,63 @@ def _dedup_by_tx(mods: list) -> list:
     seen, out = set(), []
     for m in mods:
         tx = m.get("tx")
+        if tx is None:
+            out.append(m)
+            continue
         if tx in seen:
             continue
         seen.add(tx)
         out.append(m)
     return out
+
+
+def _present_value(value) -> bool:
+    """Gateway coding values are German strings from the ZGW CBF.
+
+    Only explicit installed/active values count as present. Unknown text stays
+    false; we do not infer equipment from curated module lists.
+    """
+    s = str(value or "").strip().lower()
+    if not s or "nicht" in s:
+        return False
+    return any(word in s for word in ("vorhanden", "aktiv", "erlaubt", "present", "installed"))
+
+
+def _gateway_module(name: str, present: bool = True) -> dict:
+    """One ECU exactly as reported by the gateway, enriched only by exact CBF/DB
+    matches. If no CAN ids are known, keep it visible but not probeable."""
+    from .mb import ecu_db
+    ecu = (name or "").strip()
+    curated = next((m for m in MODULES if m.get("cbf") == ecu or m.get("id") == ecu), None)
+    meta = ecu_db.get(ecu) or CATALOG.get(ecu) or {}
+    label = curated.get("name") if curated else ecu
+    tx = meta.get("can_request")
+    rx = meta.get("can_response")
+    protocol = meta.get("protocol") or (curated or {}).get("protocol") or "uds"
+    if tx is None and curated and curated.get("id_source") == "cbf":
+        tx, rx = curated.get("tx"), curated.get("rx")
+        protocol = curated.get("protocol", protocol)
+    return {
+        "id": ecu if meta or not curated else curated["id"],
+        "ecu": ecu,
+        "cbf": ecu,
+        "name": label,
+        "protocol": protocol,
+        "tx": tx,
+        "rx": rx,
+        "baudrate": meta.get("baudrate") or (curated or {}).get("baudrate"),
+        "chassis": meta.get("chassis") or (curated or {}).get("chassis", []),
+        "source": "gateway",
+        "configured": bool(present),
+        "address_known": tx is not None and rx is not None,
+    }
+
+
+def _scan_targets(chassis: str | None = None, modules: str | None = None) -> list[dict]:
+    if modules:
+        names = [m.strip() for m in modules.split(",") if m.strip()]
+        return _dedup_by_tx([_gateway_module(name) for name in names])
+    return _dedup_by_tx(modules_for(chassis))
 
 
 def _scan_module(m: dict) -> dict:
@@ -355,6 +410,12 @@ def _scan_module(m: dict) -> dict:
     filter is kept active via StopMsgFilter; no channel reconnect here (repeated
     PassThruConnect destabilises the Tactrix build)."""
     state, n, detail = "silent", 0, ""
+    if not m.get("address_known", m.get("tx") is not None and m.get("rx") is not None):
+        return {"id": m["id"], "ecu": m.get("ecu") or m.get("cbf"), "name": m["name"],
+                "cbf": m.get("cbf"), "protocol": m.get("protocol"), "tx": m.get("tx"),
+                "state": "configured", "online": False, "dtc": 0,
+                "detail": "reported by gateway, but no CAN id found in CBF catalog",
+                "source": m.get("source"), "address_known": False}
     try:
         cl = _module_client(m["id"])
         if not cl.ping():            # fast presence probe (avoids long timeouts)
@@ -365,38 +426,42 @@ def _scan_module(m: dict) -> dict:
             state, n = ("online", len(res["dtcs"])) if res["readable"] else ("present", 0)
     except Exception as e:  # noqa: BLE001 - adapter/transport error
         state, n, detail = "adapter_error", 0, str(e)
-    return {"id": m["id"], "name": m["name"], "cbf": m.get("cbf"),
-            "protocol": m["protocol"], "tx": m.get("tx"),
+    return {"id": m["id"], "ecu": m.get("ecu") or m.get("cbf"), "name": m["name"],
+            "cbf": m.get("cbf"), "protocol": m["protocol"], "tx": m.get("tx"),
             "state": state, "online": state in ("online", "present"),
-            "dtc": n, "detail": detail}
+            "dtc": n, "detail": detail, "source": m.get("source"),
+            "address_known": m.get("address_known", True)}
 
 
 @app.get("/api/vehicle/scan")
-def vehicle_scan(chassis: str | None = None):
-    """Scan the curated modules at once (non-streaming). For live, see /stream."""
+def vehicle_scan(chassis: str | None = None, modules: str | None = None):
+    """Scan either explicit gateway ECU names, or the curated chassis fallback."""
     if not session.connected:
         return JSONResponse({"error": "не подключено"}, status_code=400)
     try:
         session.reset_channel()   # one clean channel for the whole scan
     except Exception:  # noqa: BLE001
         pass
-    rows = [_scan_module(m) for m in _dedup_by_tx(modules_for(chassis))]
-    return {"chassis": chassis, "modules": rows,
+    mods = _scan_targets(chassis, modules)
+    rows = [_scan_module(m) for m in mods]
+    return {"chassis": chassis, "source": "gateway" if modules else "curated",
+            "modules": rows,
             "online": sum(1 for r in rows if r["online"]),
             "total_dtc": sum(r["dtc"] for r in rows if r["state"] == "online"),
             "adapter_error": any(r["state"] == "adapter_error" for r in rows),
-            "protocols": sorted({m["protocol"].upper() for m in modules_for(chassis)})}
+            "protocols": sorted({(m.get("protocol") or "").upper() for m in mods
+                                 if m.get("address_known", True)})}
 
 
 @app.get("/api/vehicle/scan/stream")
-def vehicle_scan_stream(chassis: str | None = None):
+def vehicle_scan_stream(chassis: str | None = None, modules: str | None = None):
     """Same scan, streamed via Server-Sent Events so each ECU card appears as
     soon as it's probed (start -> module… -> done)."""
     if not session.connected:
         return JSONResponse({"error": "не подключено"}, status_code=400)
     import json as _json
     from fastapi.responses import StreamingResponse
-    mods = _dedup_by_tx(modules_for(chassis))
+    mods = _scan_targets(chassis, modules)
     try:
         session.reset_channel()   # one clean channel for the whole scan
     except Exception:  # noqa: BLE001
@@ -408,7 +473,9 @@ def vehicle_scan_stream(chassis: str | None = None):
         online = total = 0
         adapter_error = False
         yield sse({"type": "start", "count": len(mods),
-                   "protocols": sorted({m["protocol"].upper() for m in mods})})
+                   "source": "gateway" if modules else "curated",
+                   "protocols": sorted({(m.get("protocol") or "").upper() for m in mods
+                                        if m.get("address_known", True)})})
         for m in mods:
             row = _scan_module(m)
             if row["online"]:
@@ -496,7 +563,9 @@ def gateway_info():
     if not session.connected:
         return JSONResponse({"error": "не подключено"}, status_code=400)
     from .mb import varcoding
-    out = {"engine": None, "chassis": None, "body": None, "options": [], "ecus": []}
+    out = {"engine": None, "chassis": None, "body": None,
+           "options": [], "ecus": [], "modules": [],
+           "gateway_raw": {}, "decoded_sources": []}
     try:
         session.reset_channel()
         cl = _module_client("zgw")
@@ -518,12 +587,30 @@ def gateway_info():
                 out["options"].append({"name": nm, "value": cur})
         except Exception as e:  # noqa: BLE001
             out["code_error"] = str(e)
+        # CAN-Ist is a real gateway snapshot too, but in ZGW164 it is an 8-byte
+        # status bitmap (SG00..SG47) rather than named ECU fragments. Keep the
+        # raw response visible instead of pretending to know ECU names.
+        try:
+            resp = cl.raw_request(bytes.fromhex("310800"))
+            out["gateway_raw"]["can_ist_310800"] = resp.hex().upper()
+        except Exception as e:  # noqa: BLE001
+            out["can_ist_error"] = str(e)
         # CAN-B configured ECU list
         try:
             resp = cl.raw_request(bytes.fromhex("310700"))
+            out["gateway_raw"]["can_soll_310700"] = resp.hex().upper()
             dec = varcoding.decode("ZGW164", "VCD_CAN_B_Soll_Konfiguration", resp[2:])
-            out["ecus"] = [{"name": f.get("name"), "present": "vorhanden" == str(f.get("current"))}
-                           for f in (dec or {}).get("fragments", [])]
+            out["ecus"] = []
+            for f in (dec or {}).get("fragments", []):
+                name = f.get("name")
+                present = _present_value(f.get("current"))
+                out["ecus"].append({"name": name, "value": f.get("current"),
+                                    "present": present})
+            out["modules"] = [_gateway_module(e["name"], e["present"])
+                              for e in out["ecus"] if e["present"] and e.get("name")]
+            out["decoded_sources"].append(
+                {"service": "310700", "domain": "VCD_CAN_B_Soll_Konfiguration",
+                 "label": "CAN-B Soll Konfiguration"})
         except Exception as e:  # noqa: BLE001
             out["ecu_error"] = str(e)
         # chassis token for the app (e.g. "BR 164" + body "X…" -> "X164")
@@ -661,6 +748,8 @@ def read_dtc(module: str | None = None, lang: str = "ru"):
         return {"module": module, "status": status, "responded": res["responded"],
                 "readable": res["readable"], "via": res.get("via"),
                 "detail": res.get("detail"), "dtcs": dtcs}
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 - adapter/transport error (e.g. status 12)
         return {"module": module, "status": "adapter_error", "responded": False,
                 "readable": False, "detail": str(e), "dtcs": []}
@@ -672,6 +761,8 @@ def clear_dtc(module: str | None = None):
         client = _module_client(module)
         client.clear_dtcs()
         return {"cleared": True, "module": module}
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)}, status_code=502)
 
@@ -772,6 +863,8 @@ def identify(module: str | None = None):
             except DiagError:
                 out[label] = None
         return {"module": module, "info": out}
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)}, status_code=502)
 
@@ -844,6 +937,8 @@ def security_unlock(module: str | None = None, level: int = 1):
         client = _module_client(module)
         client.session(0x03 if client.protocol == "uds" else 0x85)
         return _security_unlock(client, module, level)
+    except HTTPException:
+        raise
     except DiagError as e:
         return JSONResponse({"unlocked": False, "error": str(e)}, status_code=502)
     except Exception as e:  # noqa: BLE001
@@ -925,6 +1020,8 @@ def coding_apply(req: ApplyReq):
         client.write_did(int(use_lid, 16), coding)
         return {"ok": True, "write_service": meta["write_service"],
                 "lid": use_lid, "security": sec, "backup": bkp}
+    except HTTPException:
+        raise
     except DiagError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
 
@@ -1001,6 +1098,8 @@ def coding_write(req: WriteReq):
             unlocked = _security_unlock(client, req.module, req.level)
         client.write_did(req.did, value)
         return {"ok": True, "security": unlocked, "backup": bkp}
+    except HTTPException:
+        raise
     except DiagError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
     except Exception as e:  # noqa: BLE001

@@ -116,3 +116,35 @@ def test_catalog_endpoints_do_not_crash_without_db(client):
     # with or without ecu_db.sqlite these must answer cleanly
     assert client.get("/api/db/stats").status_code == 200
     assert client.get("/api/modules").status_code == 200
+
+
+def test_gateway_modules_are_source_of_truth(client):
+    client.post("/api/connect")
+    r = client.get("/api/gateway/info")
+    assert r.status_code == 200
+    body = r.json()
+    modules = body.get("modules") or []
+    assert modules, body
+    assert body["gateway_raw"]["can_ist_310800"].startswith("7108")
+    assert body["gateway_raw"]["can_soll_310700"].startswith("7107")
+    assert body["decoded_sources"][0]["service"] == "310700"
+    names = {m["ecu"] for m in modules}
+    assert {"PTS164", "KI164"} <= names
+    assert all(m["source"] == "gateway" for m in modules)
+    assert all("configured" in m for m in modules)
+
+
+def test_scan_accepts_explicit_gateway_modules(client):
+    client.post("/api/connect")
+    r = client.get("/api/vehicle/scan", params={"modules": "PTS164,KI164"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "gateway"
+    assert [m["ecu"] for m in body["modules"]] == ["PTS164", "KI164"]
+
+
+def test_unknown_module_does_not_fall_back_to_engine(client):
+    client.post("/api/connect")
+    r = client.get("/api/dtc", params={"module": "NO_SUCH_ECU"})
+    assert r.status_code == 404
+    assert "unknown module" in r.json()["detail"]
