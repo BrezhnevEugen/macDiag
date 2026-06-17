@@ -15,6 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 EZS = ROOT / "data" / "cbf" / "EZS164.cbf"
 CRD3 = ROOT / "data" / "cbf" / "CRD3_DEV.CBF"
+CEPC_MFA = ROOT / "data" / "cbf" / "CEPC_MFA.cbf"
 
 
 def test_presentation_meta_from_qualifier_name():
@@ -89,6 +90,7 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_Session_Type_7Bit")["raw_type"] == "ubyte"
     assert presentation_meta("PRES_Session_Type_7Bit")["scale_kind"] == "enum"
     assert presentation_meta("PRES_Volt")["unit"] == "V"
+    assert presentation_meta("PRES_IN_Battery_voltage")["unit"] == "V"
     assert presentation_meta("PRES_Temp_Cels")["unit"] == "deg C"
 
 
@@ -107,6 +109,44 @@ def test_presentation_records_extract_linear_formula():
     soot = records["PRES_6043_P_T_Dpf_soot_mass_ULONG"]
     assert soot["raw_type"] == "ulong"
     assert soot["formula"] == "x * 0.01 - 50"
+
+
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_presentation_records_extract_range_linear_formula():
+    from caesar_vc import presentation_records
+
+    records = presentation_records(CEPC_MFA)
+    battery = records["PRES_IN_Battery_voltage"]
+    assert battery["raw_type"] == "uword"
+    assert battery["byte_len"] == 2
+    assert battery["unit"] == "V"
+    assert battery["scale_kind"] == "linear"
+    assert battery["formula"] == "x * 0.0078125"
+    assert battery["source"] == "cbf_presentation_range_record"
+
+    tsl = records["PRES_TslPosnSnsrVolt_Volt_App"]
+    assert tsl["raw_type"] == "uword"
+    assert tsl["byte_len"] == 2
+    assert tsl["unit"] == "V"
+    assert tsl["formula"] == "x * 0.001221"
+
+
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_presentation_records_extract_enum_record():
+    from caesar_vc import presentation_records
+
+    records = presentation_records(CEPC_MFA)
+    glps = records["PRES_GLPS_Adap_Mode"]
+    assert glps["raw_type"] == "ubyte"
+    assert glps["byte_len"] == 1
+    assert glps["scale_kind"] == "enum"
+    assert glps["formula"] == ""
+    assert glps["source"] == "cbf_presentation_enum_record"
+
+    bool_record = records["PRES_bool_1bit_inverted"]
+    assert bool_record["raw_type"] == "ubyte"
+    assert bool_record["scale_kind"] == "enum"
+    assert bool_record["formula"] == ""
 
 
 @pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")

@@ -89,6 +89,7 @@ PRESENTATION_UNITS = {
     "US": "us",
     "V": "V",
     "VOLT": "V",
+    "VOLTAGE": "V",
     "VOLTS": "V",
 }
 PRESENTATION_UNIT_COMBOS = [
@@ -247,6 +248,57 @@ def _linear_formula(factor: float, offset: float) -> str:
     return " ".join(parts)
 
 
+def _raw_type_from_range(low: int, high: int) -> tuple[str, int]:
+    if low < 0:
+        if -0x80 <= low and high <= 0x7F:
+            return "sbyte", 1
+        if -0x8000 <= low and high <= 0x7FFF:
+            return "sword", 2
+        if -0x80000000 <= low and high <= 0x7FFFFFFF:
+            return "slong", 4
+        return "bytes", 0
+    if high <= 0xFF:
+        return "ubyte", 1
+    if high <= 0xFFFF:
+        return "uword", 2
+    if high <= 0xFFFFFFFF:
+        return "ulong", 4
+    return "bytes", 0
+
+
+def _presentation_enum_meta(data: bytes, pos: int, kind: int, method: int) -> dict | None:
+    """Recognize compact enum/range records after a PRES_* qualifier."""
+    if kind < 8 or kind % 4 != 0 or method != kind + 0x0E:
+        return None
+    count = kind // 4
+    entry = pos + kind
+    if entry + count * 14 > len(data):
+        return None
+    lows = []
+    highs = []
+    for i in range(count):
+        off = entry + i * 14
+        marker = struct.unpack_from("<H", data, off)[0]
+        if marker != 0x0403:
+            return None
+        low, high = struct.unpack_from("<ii", data, off + 2)
+        lows.append(low)
+        highs.append(high)
+    nonnegative_highs = [v for v in highs if v >= 0]
+    if not nonnegative_highs:
+        return None
+    low = min([v for v in lows if v >= 0] or [0])
+    high = max(nonnegative_highs)
+    raw_type, byte_len = _raw_type_from_range(low, high)
+    return {
+        "raw_type": raw_type,
+        "byte_len": byte_len,
+        "scale_kind": "enum",
+        "formula": "",
+        "source": "cbf_presentation_enum_record",
+    }
+
+
 def presentation_meta(name: str) -> dict:
     """Infer coarse output metadata from a PRES_* qualifier.
 
@@ -355,9 +407,15 @@ def presentation_raw_type(name: str) -> dict:
 def presentation_records(path: Path) -> dict[str, dict]:
     """Extract simple OutputPresentation records stored outside DiagService.
 
-    Caesar has richer presentation objects. This recognizes the common linear
-    conversion record layout found near the string-pool `PRES_*` qualifiers:
-    `<PRES...NUL><u32 kind=4><u16 method=0x30><float factor><float offset>`.
+    Caesar has richer presentation objects. This recognizes common conversion
+    and enum records found near the string-pool `PRES_*` qualifiers:
+
+    - `<PRES...NUL><u32 kind=4><u16 method=0x30><float factor><float offset>`
+    - `<PRES...NUL><u32 kind=4><u16 method=0x33><i32 low><i32 high>
+       <float factor><float offset>`
+    - compact enum records where `kind / 4` gives the value count and
+      `method == kind + 0x0E`
+
     Unknown records are ignored and handled by presentation_meta(name).
     """
     r = Reader(path.read_bytes())
@@ -373,17 +431,41 @@ def _presentation_records(r: Reader) -> dict[str, dict]:
             continue
         kind = struct.unpack_from("<I", r.d, pos)[0]
         method = struct.unpack_from("<H", r.d, pos + 4)[0]
-        if kind != 4 or method != 0x30:
+        low = high = None
+        source = "cbf_presentation_record"
+        if kind == 4 and method == 0x30:
+            factor, offset = struct.unpack_from("<ff", r.d, pos + 6)
+        elif kind == 4 and method == 0x33 and pos + 22 <= len(r.d):
+            low, high = struct.unpack_from("<ii", r.d, pos + 6)
+            factor, offset = struct.unpack_from("<ff", r.d, pos + 14)
+            source = "cbf_presentation_range_record"
+            if low >= high:
+                continue
+        else:
+            enum_meta = _presentation_enum_meta(r.d, pos, kind, method)
+            if not enum_meta:
+                continue
+            meta = presentation_meta(name)
+            for key in ("raw_type", "byte_len"):
+                if enum_meta.get(key) not in ("", 0, None):
+                    meta[key] = enum_meta[key]
+            meta["scale_kind"] = enum_meta["scale_kind"]
+            meta["formula"] = enum_meta["formula"]
+            meta["source"] = enum_meta["source"]
+            out.setdefault(name, meta)
             continue
-        factor, offset = struct.unpack_from("<ff", r.d, pos + 6)
         if not all(math.isfinite(v) and abs(v) < 1e9 for v in (factor, offset)):
             continue
         formula = _linear_formula(factor, offset)
         if not formula:
             continue
         meta = presentation_meta(name)
+        if low is not None and not meta.get("raw_type"):
+            raw_type, byte_len = _raw_type_from_range(low, high or 0)
+            meta["raw_type"] = raw_type
+            meta["byte_len"] = byte_len
         meta.update({"scale_kind": "linear", "formula": formula,
-                     "source": "cbf_presentation_record"})
+                     "source": source})
         out.setdefault(name, meta)
     return out
 
@@ -473,9 +555,13 @@ def _presentation_near(r: Reader, base: int, end: int,
     source = "presentation_name" if (meta.get("unit") or meta.get("formula")) else ""
     if records and name in records:
         rec = records[name]
-        for key in ("raw_type", "byte_len", "unit", "scale_kind", "formula"):
+        for key in ("raw_type", "byte_len", "unit"):
             if rec.get(key) not in ("", 0, None):
                 meta[key] = rec[key]
+        if rec.get("scale_kind"):
+            meta["scale_kind"] = rec["scale_kind"]
+        if rec.get("formula") or rec.get("source") == "cbf_presentation_enum_record":
+            meta["formula"] = rec.get("formula") or ""
         source = rec.get("source") or source
     return {"presentation": name,
             "presentation_raw_type": meta["raw_type"],

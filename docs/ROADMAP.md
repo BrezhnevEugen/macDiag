@@ -264,6 +264,25 @@
   presentations: `PRES_TslPosnSnsrVolt_Volt_App`, `PRES_APP_DATASET_DC_APV`,
   `PRES_GLPS_Adap_Mode`, `PRES_GLZP_Err_Mode_App`, `PRES_IN_Battery_voltage`.
 
+Состояние после шестого инкремента этапа 2:
+
+- `measurements.sqlite` schema v13 распознает Caesar range-linear presentation
+  records: `kind=4`, `method=0x33`, `min_raw/max_raw`, `factor`, `offset`, а
+  также compact enum records (`kind=8/12/...`, `method == kind + 0x0E`).
+- Для `method=0x33` parser выводит `raw_type/byte_len` из диапазона raw-значений
+  и сохраняет `source=cbf_diag_inline+cbf_presentation_range_record`.
+- Для enum-record parser выводит `raw_type/byte_len`, `scale_kind=enum` и
+  намеренно не проставляет formula, пока не сохраняем labels/value-map.
+- Добавлен unit token `Voltage -> V`.
+- Примеры из `CEPC_MFA`: `PRES_IN_Battery_voltage -> x * 0.0078125 V`,
+  `PRES_TslPosnSnsrVolt_Volt_App -> x * 0.001221 V`,
+  `PRES_GLPS_Adap_Mode -> ubyte enum`.
+- Глобально `service_outputs`: `raw_type` вырос до 157336, `unit` до 38907,
+  `formula` стало 94234 после снятия небезопасных bool formulas с enum-record.
+  Для `CEPC_MFA`: rawtype 508, formula 137 среди 545 matched rows.
+- Следующий слой для enum - сохранить labels/value-map; `PRES_BLK*` таблицы
+  остаются отдельной layout-задачей.
+
 Состояние после справочного CAN-инкремента:
 
 - `measurements.sqlite` schema v10 содержит таблицы `reference_links` и
@@ -294,7 +313,8 @@
 
 Следующий крупный шаг:
 
-- Продолжить этап 2: разобрать layout для `PRES_BLK*` таблиц и кастомные
-  application presentations (`PRES_Tsl...`, `PRES_GLPS...`, `PRES_IN_*`).
+- Продолжить этап 2: сохранять labels/value-map для enum presentation records
+  (`PRES_GLPS...`, `PRES_GLZP...`, supplier/fingerprint lists) и затем разобрать
+  полноценный layout для `PRES_BLK*` таблиц.
 - По справочному слою: пополнять `can_examples` проверенными фактами из W164/X164
   topology pages и привязать их к сценариям замены кластера/bench-проверки.

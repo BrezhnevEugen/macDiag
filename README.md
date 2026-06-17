@@ -110,10 +110,12 @@ docker compose exec macdiag python tools/fetch_unlock_db.py
   `.vsg/.mwg`; runtime читает её первой. В ней уже есть `localization_key`
   для групп/параметров, таблица `translations` под словарь, CBF request metadata
   и `service_outputs` с найденными `PRES_*` output-presentation qualifier.
-  Schema v8 хранит грубо определённый raw type/byte length, unit/formula из
-  очевидных `PRES_CM_*` qualifier names и линейные conversion records из CBF
-  (`factor/offset`, например `x * 0.01 - 50`), а также классифицирует
-  `bool`, `BCD`, `block` и `hexdump` presentations.
+  Schema v13 хранит грубо определённый raw type/byte length, unit/formula из
+  очевидных `PRES_CM_*` qualifier names, линейные conversion records из CBF
+  (`factor/offset`, например `x * 0.01 - 50`) и range-linear records
+  (`min/max + factor/offset`, например CEPC battery voltage), а также
+  классифицирует enum-records, `bool`, `BCD`, `block` и `hexdump`
+  presentations.
 - `./data/dist_raw` — мелкое сырьё с внешнего `dist`: документы, таблицы,
   ETN/CDI/BMREF, DWF-чертежи и выбранные reference/coding-архивы.
 - `./data/dist_raw/firmware_external_index.tsv` — список прошивок, которые

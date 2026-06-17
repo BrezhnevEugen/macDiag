@@ -280,11 +280,21 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     if not presentation:
         return
     meta = caesar_vc.presentation_meta(presentation)
-    raw_type = info.get("presentation_raw_type") or meta["raw_type"]
-    byte_len = int(info.get("presentation_byte_len") or meta["byte_len"] or 0)
-    unit = info.get("presentation_unit") or meta["unit"]
-    scale_kind = info.get("presentation_scale_kind") or meta["scale_kind"]
-    formula = info.get("presentation_formula") or meta["formula"]
+    raw_type = (
+        info["presentation_raw_type"]
+        if "presentation_raw_type" in info
+        else meta["raw_type"]
+    )
+    byte_len = int(
+        info["presentation_byte_len"] if "presentation_byte_len" in info else meta["byte_len"] or 0
+    )
+    unit = info["presentation_unit"] if "presentation_unit" in info else meta["unit"]
+    scale_kind = (
+        info["presentation_scale_kind"]
+        if "presentation_scale_kind" in info
+        else meta["scale_kind"]
+    )
+    formula = info["presentation_formula"] if "presentation_formula" in info else meta["formula"]
     source = "cbf_diag_inline"
     meta_source = info.get("presentation_meta_source") or (
         "presentation_name" if (unit or formula) else ""
@@ -506,7 +516,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
     conn = sqlite3.connect(tmp)
     try:
         conn.executescript(SCHEMA)
-        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "11"))
+        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "13"))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("built_at", str(time.time())))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("vsg_dir", str(vsg_dir)))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("mwg_dir", str(mwg_dir)))

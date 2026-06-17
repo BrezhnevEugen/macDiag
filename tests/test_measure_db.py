@@ -9,6 +9,41 @@ import measure_diag_coverage
 import measure_unmatched_jobs
 
 
+def test_insert_service_output_preserves_explicit_empty_formula():
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(build_measure_db.SCHEMA)
+        build_measure_db._insert_service_output(
+            conn,
+            "CEPC_MFA",
+            "DT_BOOL",
+            {
+                "presentation": "PRES_bool_1bit_inverted",
+                "presentation_raw_type": "ubyte",
+                "presentation_byte_len": 1,
+                "presentation_unit": "",
+                "presentation_scale_kind": "enum",
+                "presentation_formula": "",
+                "presentation_meta_source": "cbf_presentation_enum_record",
+            },
+        )
+        row = conn.execute(
+            """
+            SELECT raw_type, byte_len, scale_kind, formula, source
+            FROM service_outputs
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == (
+        "ubyte",
+        1,
+        "enum",
+        "",
+        "cbf_diag_inline+cbf_presentation_enum_record",
+    )
+
+
 def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
     vsg_dir = tmp_path / "vsg"
     mwg_dir = tmp_path / "raw"
@@ -34,7 +69,7 @@ def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
         translation_count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0]
-    assert schema_version == "11"
+    assert schema_version == "13"
     assert translation_count == 3
 
     from backend.mb import measurements
