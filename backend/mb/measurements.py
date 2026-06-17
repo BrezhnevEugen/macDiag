@@ -1144,6 +1144,7 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
     bit_width = _layout_bit_width(svc)
     if bit_width:
         return _extract_bits(resp, bit_pos, bit_width)
+    bit_len = _layout_payload_bit_len(svc, bit_len)
     if bit_pos % 8:
         return None
     if bit_len % 8:
@@ -1153,6 +1154,18 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
     if end > len(resp):
         return b""
     return resp[start:end]
+
+
+def _layout_payload_bit_len(svc: dict | None, bit_len: int) -> int:
+    raw_type = ((svc or {}).get("output_raw_type") or "").lower()
+    if raw_type in {"ascii", "bytes", "hexdump"}:
+        try:
+            byte_len = int((svc or {}).get("output_byte_len") or 0)
+        except (TypeError, ValueError):
+            byte_len = 0
+        if byte_len > 0:
+            return byte_len * 8
+    return bit_len
 
 
 def _layout_bit_width(svc: dict) -> int:

@@ -51,6 +51,19 @@ def test_presentation_meta_from_qualifier_name():
     hex_meta = presentation_meta("PRES_HexDump_55_Bytes")
     assert hex_meta["raw_type"] == "hexdump"
     assert hex_meta["byte_len"] == 55
+    vin_dump = presentation_meta("PRES_VIN_17_ByteDump")
+    assert vin_dump["raw_type"] == "hexdump"
+    assert vin_dump["byte_len"] == 17
+    assert presentation_meta("PRES_Hex_Dump_18Bytes")["byte_len"] == 18
+    assert presentation_meta("PRES_DOP_IDENTICAL_BYTEFIELD_16_Bytes") == {
+        "raw_type": "bytes",
+        "byte_len": 16,
+        "unit": "",
+        "scale_kind": "",
+        "formula": "",
+    }
+    assert presentation_meta("PRES_IDENTICAL_HEX_160")["byte_len"] == 20
+    assert presentation_meta("PRES_Identical_HEX_display_for_24_bits")["byte_len"] == 3
 
     block_meta = presentation_meta("PRES_BLK_EngSpd_GearState_COL_format")
     assert block_meta["raw_type"] == "block"

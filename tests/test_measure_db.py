@@ -839,6 +839,16 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
         req, bytes.fromhex("6201230A0B0C0D"), {"output_raw_type": "block"}
     ) == "0A0B0C0D"
     assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123AABBCCDDEE"),
+        {
+            "output_raw_type": "hexdump",
+            "output_byte_len": 4,
+            "output_bit_pos": 24,
+            "output_bit_len": 16,
+        },
+    ) == "AABBCCDD"
+    assert measurements._raw_value(
         req, bytes.fromhex("62012341424300"), {"output_raw_type": "ascii"}
     ) == "ABC"
     assert measurements._raw_value(

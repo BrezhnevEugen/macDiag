@@ -331,15 +331,29 @@ def presentation_meta(name: str) -> dict:
     raw_type = ""
     byte_len = 0
     scale = {"scale_kind": "", "formula": ""}
-    if "HEXDUMP" in up:
+    if "HEXDUMP" in up or "HEX_DUMP" in up:
         raw_type = "hexdump"
-        m = re.search(r"HEXDUMP[_\s]*(\d+)(?:[_\s]*(?:BYTE|BYTES))?", up)
+        m = re.search(r"HEX_?DUMP[_\s]*(\d+)(?:[_\s]*(?:BYTE|BYTES))?", up)
         if m:
             byte_len = int(m.group(1))
-    elif re.search(r"\d+\s*BYTE\s*DUMP", up):
+    elif re.search(r"\d+[_\s]*BYTE[_\s]*DUMP", up):
         raw_type = "hexdump"
-        m = re.search(r"(\d+)\s*BYTE\s*DUMP", up)
+        m = re.search(r"(\d+)[_\s]*BYTE[_\s]*DUMP", up)
         byte_len = int(m.group(1)) if m else 0
+    elif re.search(r"IDENTICAL_HEX_DISPLAY_FOR_(\d+)_BYTES?", up):
+        raw_type = "hexdump"
+        byte_len = int(re.search(r"IDENTICAL_HEX_DISPLAY_FOR_(\d+)_BYTES?", up).group(1))
+    elif re.search(r"IDENTICAL_HEX_DISPLAY_FOR_(\d+)_BITS?", up):
+        raw_type = "hexdump"
+        bit_len = int(re.search(r"IDENTICAL_HEX_DISPLAY_FOR_(\d+)_BITS?", up).group(1))
+        byte_len = max(1, (bit_len + 7) // 8)
+    elif re.search(r"IDENTICAL_HEX_(\d+)(?:_|$)", up):
+        raw_type = "hexdump"
+        bit_len = int(re.search(r"IDENTICAL_HEX_(\d+)(?:_|$)", up).group(1))
+        byte_len = max(1, (bit_len + 7) // 8)
+    elif re.search(r"IDENTICAL_BYTEFIELD_(\d+)_BYTES?", up):
+        raw_type = "bytes"
+        byte_len = int(re.search(r"IDENTICAL_BYTEFIELD_(\d+)_BYTES?", up).group(1))
     elif re.search(r"\d+\s*BYTE\s*BCD", up):
         raw_type = "bcd"
         m = re.search(r"(\d+)\s*BYTE\s*BCD", up)
