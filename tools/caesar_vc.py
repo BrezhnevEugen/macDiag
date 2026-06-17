@@ -205,6 +205,9 @@ def _presentation_unit(tokens: list[str]) -> str:
 def _presentation_semantic_unit(tokens: list[str]) -> str:
     up = "_".join(tokens)
     token_set = set(tokens)
+    if any(t in {"CNTR", "CNT", "COUNTER", "CTNUM", "CTDENOM"} or t.endswith("CTR")
+           for t in token_set):
+        return "count"
     if token_set & {"TRQ", "TORQUE", "DREHMOMENT"}:
         return "Nm"
     if token_set & {"TASTVERHAELTNIS", "DTYCYC", "DUTYCYC"}:

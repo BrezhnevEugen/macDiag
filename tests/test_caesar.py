@@ -119,6 +119,9 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_Tastverhaeltnis_E")["unit"] == "%"
     assert presentation_meta("PRES_Pres_Rail")["unit"] == "bar"
     assert presentation_meta("PRES_EngN")["unit"] == "rpm"
+    assert presentation_meta("PRES_DC_CNTR")["unit"] == "count"
+    assert presentation_meta("PRES_DOP_LABEL_Eep_numBlkCtr")["unit"] == "count"
+    assert presentation_meta("PRES_DOP_LABEL_DIUMPR_ctNum")["unit"] == "count"
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
