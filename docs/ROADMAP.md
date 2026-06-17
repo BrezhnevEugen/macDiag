@@ -292,8 +292,10 @@
 - Backend/API отдает `output_value_map` для параметров и помечает такие значения
   как `value_source=enum`; hardware decode может заменить raw integer на label.
 - На текущей локальной базе: `output_value_maps=11704`, `raw_type=157336`,
-  `unit=38907`, `formula=94234`. Для `CEPC_MFA`: rawtype 508, formula 137 среди
-  545 matched rows.
+  `unit=38907`, `formula=94215` после снятия ложных scalar formulas с
+  `PRES_BLK*`. Для `CEPC_MFA`: rawtype 508, formula 134 среди 545 matched rows.
+- `PRES_BLK*` теперь намеренно остаются `raw_type=block`, `scale_kind=block`,
+  пока не разобран настоящий DiagService response-field layout.
 
 Состояние после справочного CAN-инкремента:
 

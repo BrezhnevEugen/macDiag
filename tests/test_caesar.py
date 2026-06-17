@@ -153,6 +153,15 @@ def test_presentation_records_extract_enum_record():
     assert bool_record["formula"] == ""
 
 
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_presentation_records_do_not_scale_block_layouts():
+    from caesar_vc import presentation_records
+
+    records = presentation_records(CEPC_MFA)
+    assert "PRES_BLK3S_Stopcluster_COL_format" not in records
+    assert "PRES_BLK_FirstStrt_Km" not in records
+
+
 @pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")
 def test_parse_cbf_ezs164():
     from parse_cbf import parse_cbf

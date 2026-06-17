@@ -468,6 +468,8 @@ def _presentation_records(r: Reader, strings: list[str] | None = None) -> dict[s
         if not formula:
             continue
         meta = presentation_meta(name)
+        if meta.get("raw_type") == "block":
+            continue
         if low is not None and not meta.get("raw_type"):
             raw_type, byte_len = _raw_type_from_range(low, high or 0)
             meta["raw_type"] = raw_type
