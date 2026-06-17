@@ -169,6 +169,12 @@ class Session:
 session = Session()
 
 
+class TranslationUpdate(BaseModel):
+    localization_key: str
+    lang: str = "ru"
+    text: str = ""
+
+
 def _backup_current(client, module: str | None, did: int,
                     domain: str | None = None, new_hex: str = "") -> dict:
     """Read and journal the current value of the identifier we are about to
@@ -681,7 +687,7 @@ def measure_group(path: str, lang: str = "ru"):
 
 
 @app.get("/api/measure/read")
-def measure_read(path: str, module: str | None = None):
+def measure_read(path: str, module: str | None = None, lang: str = "ru"):
     """Current values for a measurement group's parameters.
     On hardware, read raw values via the group's ECU; in sim, synthesize."""
     from .mb import measurements
@@ -694,7 +700,70 @@ def measure_read(path: str, module: str | None = None):
                 client = _module_client(ecu)
             except Exception:  # noqa: BLE001
                 client = None
-    return {"path": path, "values": measurements.read_values(path, hw=hw, client=client)}
+    return {"path": path, "values": measurements.read_values(path, lang=lang, hw=hw, client=client)}
+
+
+@app.get("/api/measure/translations")
+def measure_translations(lang: str = "ru", q: str = "", kind: str = "all",
+                         status: str = "all", limit: int = 100, offset: int = 0):
+    from .mb import measurements
+    try:
+        return measurements.translation_rows(
+            lang=lang, q=q, kind=kind, status=status, limit=limit, offset=offset)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/measure/translations/stats")
+def measure_translation_stats(lang: str = "ru"):
+    from .mb import measurements
+    try:
+        return measurements.translation_stats(lang)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/measure/translations")
+def measure_translation_save(item: TranslationUpdate):
+    from .mb import measurements
+    try:
+        return measurements.save_translation(item.localization_key, item.lang, item.text)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except KeyError:
+        return JSONResponse({"error": "localization_key not found"}, status_code=404)
+    except FileNotFoundError:
+        return JSONResponse({"error": "measurements DB not found"}, status_code=404)
+
+
+@app.get("/api/references")
+def reference_links(q: str = "", tag: str = "", vehicle: str = "",
+                    limit: int = 100, offset: int = 0):
+    """Local reference links imported from Safari/bookmark exports."""
+    from .mb import measurements
+    return measurements.reference_links(
+        q=q, tag=tag, vehicle=vehicle, limit=limit, offset=offset)
+
+
+@app.get("/api/references/stats")
+def reference_stats():
+    from .mb import measurements
+    return measurements.reference_link_stats()
+
+
+@app.get("/api/can/examples")
+def can_examples(q: str = "", tag: str = "", vehicle: str = "",
+                 can_id: str = "", limit: int = 100, offset: int = 0):
+    """Reviewed passive CAN examples extracted from local references."""
+    from .mb import measurements
+    return measurements.can_examples(
+        q=q, tag=tag, vehicle=vehicle, can_id=can_id, limit=limit, offset=offset)
+
+
+@app.get("/api/can/examples/stats")
+def can_example_stats():
+    from .mb import measurements
+    return measurements.can_example_stats()
 
 
 @app.get("/api/catalog")

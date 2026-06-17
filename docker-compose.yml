@@ -11,11 +11,14 @@ services:
       MACDIAG_CBF_DIR: /data/cbf
       MACDIAG_CFF_DIR: /data/cff
       MACDIAG_VSG_DIR: /data/vsg
+      MACDIAG_MEASURE_DB: /data/measurements.sqlite
+      MACDIAG_STARFINDER_DIR: /starfinder
     volumes:
-      # Persistent, EXTENSIBLE data store: CBF library + built DB + seed-key DB.
-      # Add more blocks later by dropping CBFs into ./data/cbf and rebuilding
+      # Persistent, EXTENSIBLE data store: CBF/CFF/SMR/VSG + built DBs + StarFinder.
+      # Add more blocks later by dropping files into ./data and rebuilding
       # (see README). The image never needs rebuilding for new data.
       - ./data:/data
+      - ./data/starfinder:/starfinder:ro
       # Optional: mount your full Vediamo CBF library read-only to cover every ECU.
       # Point MACDIAG_CBF_DIR at it instead, or copy what you need into ./data/cbf.
       # - /Users/you/Downloads/Vediamo/VediamoData:/vediamo:ro

@@ -14,6 +14,40 @@ function toast(msg) {
   clearTimeout(_toastT); _toastT = setTimeout(() => el.classList.remove("show"), 4000);
 }
 
+function closeMediaLightbox() {
+  const el = document.getElementById("mediaLightbox");
+  if (el) el.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
+function openMediaLightbox(src, title) {
+  let el = document.getElementById("mediaLightbox");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "mediaLightbox";
+    el.className = "diag-lightbox hidden";
+    el.innerHTML =
+      `<div class="diag-lightbox-backdrop" data-close="1"></div>` +
+      `<div class="diag-lightbox-panel" role="dialog" aria-modal="true">` +
+      `<div class="diag-lightbox-bar"><div id="mediaLightboxTitle"></div>` +
+      `<button class="ghost" id="mediaLightboxClose" type="button">${t("Закрыть")}</button></div>` +
+      `<img id="mediaLightboxImg" alt=""></div>`;
+    document.body.appendChild(el);
+    $("#mediaLightboxClose").onclick = closeMediaLightbox;
+    el.querySelector("[data-close]").onclick = closeMediaLightbox;
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") closeMediaLightbox();
+    });
+  }
+  $("#mediaLightboxTitle").textContent = title || "";
+  $("#mediaLightboxClose").textContent = t("Закрыть");
+  const img = $("#mediaLightboxImg");
+  img.src = src;
+  img.alt = title || "";
+  el.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
 // global busy spinner: shows during any data read, after a short delay so
 // fast responses don't flash. Background polls pass quiet=true.
 let _busy = 0, _spinT = null;
@@ -51,6 +85,8 @@ document.querySelectorAll(".tabs button").forEach((b) => {
     b.classList.add("active");
     $("#" + b.dataset.tab).classList.add("active");
     if (b.dataset.tab === "overview") loadOverview();
+    if (b.dataset.tab === "dict") loadDict(true);
+    if (b.dataset.tab === "refs") loadRefs(true);
     // don't keep polling measurements in the background when leaving Live
     if (b.dataset.tab !== "live" && measTimer) {
       clearInterval(measTimer); measTimer = null; $("#measAuto").textContent = t("▶ Авто");
@@ -476,12 +512,24 @@ async function drillDtc(code) {
   const grpChip = (g) => `<button class="chip linkbtn" data-grp="${esc(g.path)}">${esc(g.title)}</button>`;
   const imgs = (c.media || []).filter((m) => m.kind !== "doc");
   const docs = (c.media || []).filter((m) => m.kind === "doc");
-  const media = imgs.map((m) =>
-    `<figure style="margin:0 0 14px"><figcaption class="dim" style="margin:6px 0">${esc(m.title)}</figcaption>` +
-    `<img src="${esc(m.src)}" alt="${esc(m.title)}" style="width:100%; display:block; border:1px solid var(--line); border-radius:10px; background:var(--bg)"></figure>`).join("");
+  const schematics = imgs.filter((m) => m.kind === "schematic");
+  const realMedia = imgs.filter((m) => m.kind !== "schematic");
+  const mediaFigure = (m) =>
+    `<figure class="diag-media"><figcaption>${esc(m.title)}</figcaption>` +
+    `<button class="diag-media-open" type="button" data-full="${esc(m.src)}" data-title="${esc(m.title)}">` +
+    `<img src="${esc(m.src)}" alt="${esc(m.title)}" loading="lazy"></button></figure>`;
+  const schematicsHtml = schematics.length
+    ? `<h3>${t("Схемы диагностики")}</h3><div class="diag-media-grid">${schematics.map(mediaFigure).join("")}</div>`
+    : "";
   const docsHtml = docs.length
-    ? `<h3>${t("Описание")} (StarFinder)</h3><div class="chips">` +
-      docs.map((d) => `<a class="chip" href="${esc(d.src)}" target="_blank" rel="noopener" style="text-decoration:none">📄 ${esc(d.title)}</a>`).join("") + `</div>`
+    ? `<div class="diag-docs">` +
+      docs.map((d) => `<a class="chip" href="${esc(d.src)}" target="_blank" rel="noopener">${esc(d.title)}</a>`).join("") +
+      `</div>`
+    : "";
+  const starfinderHtml = (realMedia.length || docs.length)
+    ? `<h3>${t("Материалы StarFinder")}</h3>` +
+      (docsHtml ? `<div class="dim">${t("Документы")}</div>${docsHtml}` : "") +
+      (realMedia.length ? `<div class="dim">${t("Изображения")}</div><div class="diag-media-grid">${realMedia.map(mediaFigure).join("")}</div>` : "")
     : "";
   const comp = (c.component && c.component.name)
     ? `<div class="dim" style="margin-top:4px">${t("ЭБУ")}: <code>${esc(c.component.code)}</code> · ${esc(c.component.name)}</div>` : "";
@@ -497,13 +545,15 @@ async function drillDtc(code) {
       `<h3>${t("Связанные группы измерений")}</h3><div class="chips">${lk.measurement.map(grpChip).join("")}</div>` : "") +
     ((lk.service && lk.service.length) ?
       `<h3>${t("Связанные процедуры")}</h3><div class="chips">${lk.service.map(grpChip).join("")}</div>` : "") +
-    docsHtml +
-    (media ? `<div style="margin-top:16px">${media}</div>` : "") +
+    schematicsHtml +
+    starfinderHtml +
     sfHint(c.starfinder) +
     `</div>`;
   $("#drillClose").onclick = () => (box.innerHTML = "");
   box.querySelectorAll("button[data-grp]").forEach((b) =>
     (b.onclick = () => openGroup(b.dataset.grp)));
+  box.querySelectorAll(".diag-media-open").forEach((b) =>
+    (b.onclick = () => openMediaLightbox(b.dataset.full, b.dataset.title)));
 }
 $("#dtcClear").onclick = async () => {
   if (!confirm(t("Сбросить коды ошибок в выбранном модуле?"))) return;
@@ -578,10 +628,44 @@ $("#codeWrite").onclick = async () => {
 
 // ---- measurement groups from .vsg ----
 let measTimer = null;
+
+function renderMeasureCoverage(cov) {
+  const box = $("#measCoverage");
+  if (!box) return;
+  if (!cov || !cov.available) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  const rows = Number(cov.service_rows || 0);
+  const matched = Number(cov.matched_rows || 0);
+  const normalized = Number(cov.normalized_rows || 0);
+  const outputRows = Number(cov.output_rows || 0);
+  const rawTypeRows = Number(cov.raw_type_rows || 0);
+  const unitRows = Number(cov.unit_rows || 0);
+  const formulaRows = Number(cov.formula_rows || 0);
+  const missingJobs = Number(cov.missing_jobs || 0);
+  const pct = Number(cov.coverage_pct || 0);
+  const state = rows ? (pct >= 95 ? "ok" : pct >= 60 ? "warn" : "bad") : "empty";
+  const title = rows ? `${pct.toFixed(pct % 1 ? 1 : 0)}%` : "—";
+  const norm = normalized ? ` · ${normalized} ${t("нормализовано")}` : "";
+  const output = outputRows
+    ? ` · ${t("выход")} ${outputRows}/${matched || rows} · ${t("тип")} ${rawTypeRows}` +
+      ` · ${t("единицы")} ${unitRows} · ${t("формула")} ${formulaRows}`
+    : "";
+  const details = rows
+    ? `${matched} / ${rows} ${t("строк с request")} · ${missingJobs} ${t("job без request")}${norm}${output}`
+    : t("нет импортированных job для этого ЭБУ");
+  box.className = `coverage ${state}`;
+  box.innerHTML =
+    `<div class="coverage-main"><span>${t("CBF coverage")}</span><b>${esc(title)}</b></div>` +
+    `<div class="coverage-detail">${esc(details)}</div>`;
+}
+
 async function initMeas() {
   const r = await api("/api/measure/ecus");
   const sel = $("#measEcu");
-  if (!r.available) { sel.innerHTML = `<option>${t(".vsg недоступны")}</option>`; return; }
+  if (!r.available) { sel.innerHTML = `<option>${t("группы измерений недоступны")}</option>`; return; }
   sel.innerHTML = `<option value="">${t("— выбери ЭБУ —")}</option>` +
     r.ecus.map((e) => `<option>${esc(e)}</option>`).join("");
 }
@@ -590,10 +674,12 @@ $("#measEcu") && ($("#measEcu").onchange = async () => {
   const gsel = $("#measGroup");
   gsel.innerHTML = "";
   $("#svcDetails").innerHTML = "";
+  renderMeasureCoverage(null);
   if (!ecu) return;
   const g = await api("/api/measure/groups?module=" + encodeURIComponent(ecu) + "&lang=" + (window.LANG || "ru"));
+  renderMeasureCoverage(g.coverage);
   gsel.innerHTML = g.measurement.map((m) =>
-    `<option value="${esc(m.path)}">${esc(m.title)} (${m.count})  ·  ${m.auto ? "CBF" : ".vsg"}</option>`).join("")
+    `<option value="${esc(m.path)}">${esc(m.title)} (${m.count})  ·  ${m.auto ? "CBF" : "." + esc(m.source || "vsg")}</option>`).join("")
     || `<option value="">${t("нет измерительных групп")}</option>`;
   // service procedures -> select
   $("#svcSelect").innerHTML = `<option value="">${t("— выбери процедуру —")} (${g.service.length})</option>` +
@@ -660,8 +746,16 @@ async function openGroup(path) {
 }
 $("#measLoad") && ($("#measLoad").onclick = () => openGroup($("#measGroup").value));
 async function refreshMeas(path) {
-  const r = await api("/api/measure/read?path=" + encodeURIComponent(path), undefined, true);
+  const r = await api("/api/measure/read?path=" + encodeURIComponent(path) +
+    "&lang=" + (window.LANG || "ru"), undefined, true);
   const g = $("#gauges");
+  const readNote = (p) => {
+    if (!p.read_status || p.read_status === "simulated" || p.read_status === "hw_ok") return "";
+    const sid = p.read_sid ? ` SID ${p.read_sid}` : "";
+    return p.read_status === "error"
+      ? `${t("ошибка чтения")}${sid}`
+      : `${t("запрос заблокирован")}${sid}`;
+  };
   r.values.forEach((p) => {
     let el = document.getElementById("m_" + p.job);
     if (!el) {
@@ -677,7 +771,10 @@ async function refreshMeas(path) {
     // reference range (norm) for comparison — only for numeric params with a unit
     const ref = (p.unit && p.low != null && p.high != null && p.high !== p.low)
       ? `${t("норма")} ${p.low}–${p.high} ${p.unit}` : "";
-    el.querySelector(".sub").textContent = ref;
+    const status = readNote(p);
+    el.querySelector(".sub").textContent = [ref, status].filter(Boolean).join(" · ");
+    el.title = p.job + (p.note ? "\n(" + p.note + ")" : "") +
+      (p.read_reason ? "\n" + p.read_reason : "");
   });
 }
 $("#measAuto").onclick = () => {
@@ -687,6 +784,297 @@ $("#measAuto").onclick = () => {
   $("#measAuto").textContent = t("■ Стоп");
   measTimer = setInterval(() => refreshMeas(path), 500);
 };
+
+// ---- measurement dictionary ----
+let dictState = { offset: 0, limit: 100, total: 0 };
+
+function dictQuery(reset) {
+  if (reset) dictState.offset = 0;
+  const p = new URLSearchParams({
+    lang: $("#dictLang").value || "ru",
+    kind: $("#dictKind").value || "all",
+    status: $("#dictStatus").value || "all",
+    q: $("#dictSearch").value || "",
+    limit: String(dictState.limit),
+    offset: String(dictState.offset),
+  });
+  return p.toString();
+}
+
+function renderDictStats(stats) {
+  const src = stats.source_count || 0;
+  const done = stats.translated_count || 0;
+  const miss = stats.missing_count || 0;
+  const pct = src ? Math.round(done * 100 / src) : 0;
+  const status = $("#dictStatus")?.value || "all";
+  const dictMetric = (filterStatus, label, value, hint) =>
+    `<button type="button" class="metric dict-filter ${status === filterStatus ? "active" : ""}" data-status="${filterStatus}">` +
+    `<span class="m-lbl">${esc(label)}</span>` +
+    `<span class="m-val">${value}</span>` +
+    (hint ? `<span class="m-hint">${esc(hint)}</span>` : "") +
+    `</button>`;
+  $("#dictStats").innerHTML =
+    dictMetric("translated", t("переведено"), `${done} <span>/ ${src}</span>`, t("показать готовые")) +
+    dictMetric("missing", t("осталось"), miss, t("показать без перевода")) +
+    dictMetric("all", t("покрытие"), `${pct}%`, t("показать все"));
+  $("#dictStats").querySelectorAll(".dict-filter").forEach((btn) => {
+    btn.onclick = () => {
+      $("#dictStatus").value = btn.dataset.status || "all";
+      loadDict(true);
+    };
+  });
+}
+
+function renderDictRows(rows) {
+  const tb = $("#dictTable tbody");
+  tb.innerHTML = "";
+  $("#dictEmpty").classList.toggle("hidden", rows.length > 0);
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.dataset.key = r.localization_key;
+    tr.dataset.original = r.translation || "";
+    const kind = r.kind === "group" ? t("Группа") : r.kind === "service" ? t("Параметр") : r.kind;
+    tr.innerHTML =
+      `<td><span class="chip">${esc(kind)}</span></td>` +
+      `<td><div class="dict-source">${esc(r.source_text)}</div>` +
+      `<code>${esc(r.localization_key)}</code>` +
+      `<div class="dim">${esc(r.source_context || "")}</div></td>` +
+      `<td><textarea class="dict-input" rows="2">${esc(r.translation || "")}</textarea>` +
+      `<div class="dim dict-state"></div></td>` +
+      `<td><div class="dict-actions">` +
+      `<button class="ghost dict-save">${t("Сохранить")}</button>` +
+      `<button class="ghost dict-clear">${t("Очистить")}</button>` +
+      `</div></td>`;
+    const input = tr.querySelector(".dict-input");
+    const state = tr.querySelector(".dict-state");
+    input.oninput = () => {
+      const changed = input.value !== tr.dataset.original;
+      tr.classList.toggle("dirty", changed);
+      state.textContent = changed ? t("изменено") : "";
+    };
+    tr.querySelector(".dict-save").onclick = () => saveDictRow(tr);
+    tr.querySelector(".dict-clear").onclick = () => {
+      input.value = "";
+      input.dispatchEvent(new Event("input"));
+      saveDictRow(tr);
+    };
+    tb.appendChild(tr);
+  });
+}
+
+async function loadDict(reset) {
+  const langSel = $("#dictLang");
+  if (langSel && !langSel.value) langSel.value = window.LANG || "ru";
+  const r = await api("/api/measure/translations?" + dictQuery(reset));
+  if (r.error) { toast(r.error); return; }
+  dictState.total = r.total || 0;
+  renderDictStats(r.stats || {});
+  renderDictRows(r.rows || []);
+  const from = dictState.total ? dictState.offset + 1 : 0;
+  const to = Math.min(dictState.offset + dictState.limit, dictState.total);
+  $("#dictPageInfo").textContent = `${from}–${to} ${t("из")} ${dictState.total}`;
+  $("#dictPrev").disabled = dictState.offset <= 0;
+  $("#dictNext").disabled = dictState.offset + dictState.limit >= dictState.total;
+}
+
+async function saveDictRow(tr) {
+  const input = tr.querySelector(".dict-input");
+  const state = tr.querySelector(".dict-state");
+  state.textContent = t("сохранение…");
+  const r = await api("/api/measure/translations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      localization_key: tr.dataset.key,
+      lang: $("#dictLang").value || "ru",
+      text: input.value,
+    }),
+  });
+  if (r.error) {
+    state.textContent = r.error;
+    state.classList.add("bad");
+    return;
+  }
+  tr.dataset.original = input.value.trim();
+  tr.classList.remove("dirty");
+  state.classList.remove("bad");
+  state.textContent = t("сохранено");
+  const stats = await api("/api/measure/translations/stats?lang=" + encodeURIComponent($("#dictLang").value || "ru"), undefined, true);
+  if (!stats.error) renderDictStats(stats);
+}
+
+$("#dictRefresh") && ($("#dictRefresh").onclick = () => loadDict(true));
+$("#dictPrev") && ($("#dictPrev").onclick = () => {
+  dictState.offset = Math.max(0, dictState.offset - dictState.limit);
+  loadDict(false);
+});
+$("#dictNext") && ($("#dictNext").onclick = () => {
+  dictState.offset += dictState.limit;
+  loadDict(false);
+});
+["#dictLang", "#dictKind", "#dictStatus"].forEach((sel) => {
+  const el = $(sel);
+  if (el) el.onchange = () => loadDict(true);
+});
+let _dictSearchTimer = null;
+$("#dictSearch") && ($("#dictSearch").oninput = () => {
+  clearTimeout(_dictSearchTimer);
+  _dictSearchTimer = setTimeout(() => loadDict(true), 250);
+});
+
+// ---- local reference links ----
+let refState = { offset: 0, limit: 60, total: 0, statsLoaded: false };
+
+function refQuery(reset) {
+  if (reset) refState.offset = 0;
+  const p = new URLSearchParams({
+    q: $("#refSearch").value || "",
+    tag: $("#refTag").value || "",
+    vehicle: $("#refVehicle").value || "",
+    limit: String(refState.limit),
+    offset: String(refState.offset),
+  });
+  return p.toString();
+}
+
+function fillRefFilters(stats, canStats) {
+  const tagSel = $("#refTag");
+  const vehSel = $("#refVehicle");
+  const tagValue = tagSel.value;
+  const vehValue = vehSel.value;
+  const mergedTags = { ...(stats.tags || {}) };
+  Object.entries(canStats?.tags || {}).forEach(([key, count]) => {
+    mergedTags[key] = (mergedTags[key] || 0) + count;
+  });
+  const mergedVehicles = { ...(stats.vehicles || {}) };
+  Object.entries(canStats?.vehicles || {}).forEach(([key, count]) => {
+    mergedVehicles[key] = (mergedVehicles[key] || 0) + count;
+  });
+  const tags = Object.keys(mergedTags).sort();
+  const vehicles = Object.keys(mergedVehicles).sort();
+  tagSel.innerHTML = `<option value="">${t("Все теги")}</option>` +
+    tags.map((tag) => `<option value="${esc(tag)}">${esc(tag)} (${mergedTags[tag]})</option>`).join("");
+  vehSel.innerHTML = `<option value="">${t("Все кузова")}</option>` +
+    vehicles.map((v) => `<option value="${esc(v)}">${esc(v)} (${mergedVehicles[v]})</option>`).join("");
+  if ([...tagSel.options].some((o) => o.value === tagValue)) tagSel.value = tagValue;
+  if ([...vehSel.options].some((o) => o.value === vehValue)) vehSel.value = vehValue;
+}
+
+function renderRefStats(stats) {
+  const total = stats.total || 0;
+  const net = (stats.tags || {})["mercedes-network"] || 0;
+  const can = (stats.tags || {})["can"] || 0;
+  const adapters = ((stats.tags || {})["j2534"] || 0) + ((stats.tags || {})["openport"] || 0);
+  $("#refStats").innerHTML =
+    `<div class="metric"><span class="m-lbl">${t("ссылок")}</span><span class="m-val">${total}</span></div>` +
+    `<div class="metric"><span class="m-lbl">${t("Mercedes network")}</span><span class="m-val">${net}</span></div>` +
+    `<div class="metric"><span class="m-lbl">${t("CAN")}</span><span class="m-val">${can}</span></div>` +
+    `<div class="metric"><span class="m-lbl">${t("адаптеры")}</span><span class="m-val">${adapters}</span></div>`;
+}
+
+function renderRefRows(rows) {
+  const grid = $("#refGrid");
+  grid.innerHTML = "";
+  $("#refEmpty").classList.toggle("hidden", rows.length > 0);
+  rows.forEach((r) => {
+    const card = document.createElement("article");
+    card.className = "ref-card";
+    const tags = (r.tags || []).map((tag) => `<span class="chip">${esc(tag)}</span>`).join("");
+    const vehicles = (r.vehicle_hints || []).map((v) => `<span class="chip ref-vehicle">${esc(v)}</span>`).join("");
+    const folders = (r.folders || []).join(" | ");
+    card.innerHTML =
+      `<div class="ref-title">${esc(r.title || r.url)}</div>` +
+      `<div class="ref-domain">${esc(r.domain || "")}</div>` +
+      `<div class="chips">${tags}${vehicles}</div>` +
+      (folders ? `<div class="dim">${esc(folders)}</div>` : "") +
+      `<div class="ref-actions"><a class="ghost ref-open" href="${esc(r.url)}" target="_blank" rel="noopener">${t("Открыть")}</a></div>`;
+    grid.appendChild(card);
+  });
+}
+
+function renderCanExampleStats(stats) {
+  const total = stats.total || 0;
+  const ids = Object.keys(stats.can_ids || {}).length;
+  const vehicles = Object.keys(stats.vehicles || {}).length;
+  $("#canExampleStats").innerHTML =
+    `<div class="metric"><span class="m-lbl">${t("фактов")}</span><span class="m-val">${total}</span></div>` +
+    `<div class="metric"><span class="m-lbl">${t("CAN ID")}</span><span class="m-val">${ids}</span></div>` +
+    `<div class="metric"><span class="m-lbl">${t("кузовов")}</span><span class="m-val">${vehicles}</span></div>`;
+}
+
+function renderCanExamples(rows) {
+  const grid = $("#canExampleGrid");
+  grid.innerHTML = "";
+  $("#canExampleEmpty").classList.toggle("hidden", rows.length > 0);
+  rows.forEach((r) => {
+    const card = document.createElement("article");
+    card.className = "can-example-card";
+    const tags = (r.tags || []).map((tag) => `<span class="chip">${esc(tag)}</span>`).join("");
+    const speed = r.speed_kbit_s ? `${r.speed_kbit_s} kbit/s` : "—";
+    const canId = r.can_id || "—";
+    const data = r.data_hex ? `<code>${esc(r.data_hex)}</code>` : `<span class="muted">—</span>`;
+    card.innerHTML =
+      `<div class="can-example-head"><b>${esc(canId)}</b><span>${esc(r.body || r.vehicle || "")}</span></div>` +
+      `<div class="can-example-meta">${esc(speed)} · DLC ${esc(r.dlc ?? "—")}</div>` +
+      `<div class="can-example-route">${esc(r.source_node || "—")} → ${esc(r.target_node || "—")}</div>` +
+      `<div class="can-example-data">${data}</div>` +
+      `<div class="can-example-meaning">${esc(r.payload_meaning || "")}</div>` +
+      (r.safety_note ? `<div class="warn can-example-safety">${esc(r.safety_note)}</div>` : "") +
+      `<div class="chips">${tags}</div>` +
+      `<div class="ref-actions"><a class="ghost ref-open" href="${esc(r.source_url)}" target="_blank" rel="noopener">${t("Источник")}</a></div>`;
+    grid.appendChild(card);
+  });
+}
+
+async function loadCanExamples() {
+  const p = new URLSearchParams({
+    q: $("#refSearch").value || "",
+    tag: $("#refTag").value || "",
+    vehicle: $("#refVehicle").value || "",
+    limit: "100",
+    offset: "0",
+  });
+  const r = await api("/api/can/examples?" + p.toString(), undefined, true);
+  if (r.error) { toast(r.error); return; }
+  renderCanExampleStats(r.stats || {});
+  renderCanExamples(r.rows || []);
+}
+
+async function loadRefs(reset) {
+  const r = await api("/api/references?" + refQuery(reset));
+  if (r.error) { toast(r.error); return; }
+  const canStats = await api("/api/can/examples/stats", undefined, true).catch(() => ({}));
+  refState.total = r.total || 0;
+  const stats = r.stats || {};
+  fillRefFilters(stats, canStats || {});
+  renderRefStats(stats);
+  renderRefRows(r.rows || []);
+  const from = refState.total ? refState.offset + 1 : 0;
+  const to = Math.min(refState.offset + refState.limit, refState.total);
+  $("#refPageInfo").textContent = `${from}–${to} ${t("из")} ${refState.total}`;
+  $("#refPrev").disabled = refState.offset <= 0;
+  $("#refNext").disabled = refState.offset + refState.limit >= refState.total;
+  await loadCanExamples();
+}
+
+$("#refRefresh") && ($("#refRefresh").onclick = () => loadRefs(true));
+$("#refPrev") && ($("#refPrev").onclick = () => {
+  refState.offset = Math.max(0, refState.offset - refState.limit);
+  loadRefs(false);
+});
+$("#refNext") && ($("#refNext").onclick = () => {
+  refState.offset += refState.limit;
+  loadRefs(false);
+});
+["#refTag", "#refVehicle"].forEach((sel) => {
+  const el = $(sel);
+  if (el) el.onchange = () => loadRefs(true);
+});
+let _refSearchTimer = null;
+$("#refSearch") && ($("#refSearch").oninput = () => {
+  clearTimeout(_refSearchTimer);
+  _refSearchTimer = setTimeout(() => loadRefs(true), 250);
+});
 
 // ---- variant coding ----
 let vcState = { coding: "", domain: "", dump: 0 };
@@ -780,10 +1168,16 @@ window.onLangChange = () => {
   $("#svcDetails").innerHTML = "";
   $("#gauges").innerHTML = "";
   $("#measDesc").classList.add("hidden");
+  renderMeasureCoverage(null);
   refreshStatus();
   loadModules($("#chassis").value);
   initMeas();
   loadOverview();
+  if ($("#dict").classList.contains("active")) {
+    $("#dictLang").value = window.LANG || "ru";
+    loadDict(true);
+  }
+  if ($("#refs").classList.contains("active")) loadRefs(true);
 };
 
 // ---- debug traffic log ----

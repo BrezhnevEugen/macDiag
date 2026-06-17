@@ -18,6 +18,9 @@ Usage:
 from __future__ import annotations
 
 import json
+import math
+import re
+import struct
 import sys
 from pathlib import Path
 
@@ -26,6 +29,77 @@ from caesar_comparam import Reader, Bitflags, parse_cff, STUB_HEADER_SIZE  # noq
 
 
 FRAG_LEN_TABLE = [0, 1, 4, 8, 0x10, 0x20, 0x40]
+PRESENTATION_RE = re.compile(rb"PRES_[A-Za-z0-9_]{2,120}\x00")
+PRESENTATION_TYPES = {
+    "BYTE": ("ubyte", 1),
+    "UBYTE": ("ubyte", 1),
+    "SBYTE": ("sbyte", 1),
+    "WORD": ("uword", 2),
+    "UWORD": ("uword", 2),
+    "SWORD": ("sword", 2),
+    "DWORD": ("ulong", 4),
+    "UDWORD": ("ulong", 4),
+    "ULONG": ("ulong", 4),
+    "SLONG": ("slong", 4),
+    "FLOAT": ("float", 4),
+    "DOUBLE": ("double", 8),
+}
+PRESENTATION_SCALE_RE = re.compile(r"^(N?BIN|DEC)(\d+)$", re.I)
+PRESENTATION_UNITS = {
+    "A": "A",
+    "ADCNT": "count",
+    "AFR": "AFR",
+    "AS": "A*s",
+    "BAR": "bar",
+    "C": "deg C",
+    "CELS": "deg C",
+    "CELSIUS": "deg C",
+    "CNT": "count",
+    "CNTS": "count",
+    "DEG": "deg",
+    "DEGC": "deg C",
+    "EDEG": "deg",
+    "G": "g",
+    "H": "h",
+    "HZ": "Hz",
+    "HPA": "hPa",
+    "K": "K",
+    "KG": "kg",
+    "KM": "km",
+    "KMH": "km/h",
+    "L": "l",
+    "M3": "m3",
+    "MA": "mA",
+    "MG": "mg",
+    "MGS": "mg/stroke",
+    "MIN": "min",
+    "MM": "mm",
+    "MM3": "mm3",
+    "MS": "ms",
+    "MV": "mV",
+    "NM": "Nm",
+    "OHM": "Ohm",
+    "PERCENT": "%",
+    "PPM": "ppm",
+    "PRC": "%",
+    "RPM": "rpm",
+    "S": "s",
+    "STR": "stroke",
+    "UM": "um",
+    "US": "us",
+    "V": "V",
+    "VOLT": "V",
+    "VOLTS": "V",
+}
+PRESENTATION_UNIT_COMBOS = [
+    (("G", "S"), "g/s"),
+    (("KG", "H"), "kg/h"),
+    (("KM", "H"), "km/h"),
+    (("L", "1000KM"), "l/1000km"),
+    (("M3", "H"), "m3/h"),
+    (("MG", "STR"), "mg/stroke"),
+    (("MM3", "STR"), "mm3/stroke"),
+]
 
 
 # --- bitflag field helpers that RESOLVE strings/dumps -----------------------
@@ -102,6 +176,218 @@ def ctf(strings: list[str], idx: int) -> str:
     return strings[idx]
 
 
+def _presentation_tokens(name: str) -> list[str]:
+    return [t.upper() for t in re.split(r"[_\s]+", name or "") if t]
+
+
+def _presentation_unit(tokens: list[str]) -> str:
+    ignored = {"PRES", "CON", "CM", "NA"}
+    raw_tokens = set(PRESENTATION_TYPES) | {"BYTES", "HEXDUMP", "ASCII"}
+    candidates = []
+    for t in tokens:
+        if t in ignored or t in raw_tokens:
+            continue
+        if t.isdigit() or PRESENTATION_SCALE_RE.match(t):
+            continue
+        candidates.append(t)
+    for combo, unit in PRESENTATION_UNIT_COMBOS:
+        for i in range(len(candidates) - len(combo) + 1):
+            if tuple(candidates[i:i + len(combo)]) == combo:
+                return unit
+    for t in candidates:
+        unit = PRESENTATION_UNITS.get(t)
+        if unit:
+            return unit
+    return ""
+
+
+def _presentation_scale(tokens: list[str]) -> dict:
+    for t in tokens:
+        m = PRESENTATION_SCALE_RE.match(t)
+        if not m:
+            continue
+        kind = m.group(1).upper()
+        power = int(m.group(2))
+        if kind == "BIN":
+            divisor = 2 ** power
+            return {"scale_kind": "binary",
+                    "formula": "x" if divisor == 1 else f"x / {divisor}"}
+        if kind == "DEC":
+            divisor = 10 ** power
+            return {"scale_kind": "decimal",
+                    "formula": "x" if divisor == 1 else f"x / {divisor}"}
+        return {"scale_kind": "", "formula": ""}
+    return {"scale_kind": "", "formula": ""}
+
+
+def _num(v: float) -> str:
+    for places in range(0, 7):
+        rounded = round(v, places)
+        if abs(v - rounded) <= max(1e-8, abs(v) * 1e-6):
+            v = rounded
+            break
+    if abs(v - round(v)) < 1e-9:
+        return str(int(round(v)))
+    return f"{v:.9g}"
+
+
+def _linear_formula(factor: float, offset: float) -> str:
+    if abs(factor) < 1e-12 and abs(offset) < 1e-12:
+        return ""
+    parts = []
+    if abs(factor - 1.0) < 1e-9:
+        parts.append("x")
+    elif abs(factor + 1.0) < 1e-9:
+        parts.append("-x")
+    else:
+        parts.append(f"x * {_num(factor)}")
+    if abs(offset) >= 1e-9:
+        op = "+" if offset > 0 else "-"
+        parts.append(f"{op} {_num(abs(offset))}")
+    return " ".join(parts)
+
+
+def presentation_meta(name: str) -> dict:
+    """Infer coarse output metadata from a PRES_* qualifier.
+
+    This is not yet the Caesar output-presentation formula parser; it gives the
+    DB a stable first hook for coverage and future scaling work.
+    """
+    up = (name or "").upper()
+    tokens = _presentation_tokens(name)
+    raw_type = ""
+    byte_len = 0
+    scale = {"scale_kind": "", "formula": ""}
+    if "HEXDUMP" in up:
+        raw_type = "hexdump"
+        m = re.search(r"HEXDUMP[_\s]*(\d+)(?:[_\s]*(?:BYTE|BYTES))?", up)
+        if m:
+            byte_len = int(m.group(1))
+    elif re.search(r"\d+\s*BYTE\s*DUMP", up):
+        raw_type = "hexdump"
+        m = re.search(r"(\d+)\s*BYTE\s*DUMP", up)
+        byte_len = int(m.group(1)) if m else 0
+    elif re.search(r"\d+\s*BYTE\s*BCD", up):
+        raw_type = "bcd"
+        m = re.search(r"(\d+)\s*BYTE\s*BCD", up)
+        byte_len = int(m.group(1)) if m else 0
+        scale = {"scale_kind": "bcd", "formula": "bcd"}
+    elif "BOOL" in up and "1BIT" in up:
+        raw_type = "bool"
+        byte_len = 1
+        scale = {"scale_kind": "boolean",
+                 "formula": "x == 0" if "INVERT" in up else "x != 0"}
+    elif re.search(r"(^|_)BIT[_\s]*(JA|YES|TRUE|NEIN|NO|FALSE|AKTIV|ACTIVE)(?:_|$)", up):
+        raw_type = "bool"
+        byte_len = 1
+        scale = {"scale_kind": "boolean", "formula": "x != 0"}
+    elif re.search(r"(^|_)(?:1\s*BIT|BIT_?1|UNSIGNED_?1BIT|.*_1BIT)(?:_|$)", up):
+        raw_type = "bool"
+        byte_len = 1
+        scale = {"scale_kind": "boolean", "formula": "x != 0"}
+    elif re.search(
+        r"(NEIN[_\s]*JA|JA[_\s]*NEIN|YES[_\s]*NO|NO[_\s]*YES|"
+        r"FALSE[_\s]*TRUE|TRUE[_\s]*FALSE|INAKTIV[_\s]*AKTIV|"
+        r"AUS[_\s]*EIN|OFF[_\s]*ON|NULL[_\s]*EINS)",
+        up,
+    ):
+        raw_type = "ubyte"
+        byte_len = 1
+        scale = {"scale_kind": "enum", "formula": ""}
+    elif re.search(r"(^|_)BCD(?:_|$)", up):
+        raw_type = "bcd"
+        m = re.search(r"(^|_)BCD[_\s]*(\d+)(?:_|$)", up)
+        if m:
+            byte_len = (int(m.group(2)) + 1) // 2
+        scale = {"scale_kind": "bcd", "formula": "bcd"}
+    elif re.search(r"IDENTICAL_UINT_(?:DEC|HEX)_(\d+)_BYTES?", up):
+        byte_len = int(re.search(r"IDENTICAL_UINT_(?:DEC|HEX)_(\d+)_BYTES?", up).group(1))
+        raw_type = {1: "ubyte", 2: "uword", 4: "ulong", 8: "bytes"}.get(byte_len, "bytes")
+    elif re.search(r"IDENTICAL_INT_(?:DEC|HEX)_(\d+)_BYTES?", up):
+        byte_len = int(re.search(r"IDENTICAL_INT_(?:DEC|HEX)_(\d+)_BYTES?", up).group(1))
+        raw_type = {1: "sbyte", 2: "sword", 4: "slong", 8: "bytes"}.get(byte_len, "bytes")
+    elif re.search(r"(^|_)BLK\d*S?(?:_|$)", up):
+        raw_type = "block"
+        scale = {"scale_kind": "block", "formula": ""}
+    elif "ASCII" in up:
+        m = re.search(r"(\d+)\s*BYTE\s*ASCII", up)
+        raw_type = "ascii"
+        byte_len = int(m.group(1)) if m else 0
+    else:
+        for token, (found_type, found_len) in PRESENTATION_TYPES.items():
+            if re.search(rf"(^|_){token}($|_)", up):
+                raw_type = found_type
+                byte_len = found_len
+                break
+        m = re.search(r"(^|_)(\d+)\s*BYTE($|_)", up)
+        if m:
+            raw_type = "bytes"
+            byte_len = int(m.group(2))
+        m = re.search(r"UNSIGNED[_\s]*(\d+)BIT", up)
+        if not raw_type and m:
+            bit_len = int(m.group(1))
+            raw_type = "ubyte" if bit_len <= 8 else "uword" if bit_len <= 16 else "ulong"
+            byte_len = max(1, (bit_len + 7) // 8)
+            scale = {"scale_kind": "bitfield", "formula": ""}
+        m = re.search(r"SESSION[_\s]*TYPE[_\s]*(\d+)BIT", up)
+        if not raw_type and m:
+            bit_len = int(m.group(1))
+            raw_type = "ubyte" if bit_len <= 8 else "uword"
+            byte_len = max(1, (bit_len + 7) // 8)
+            scale = {"scale_kind": "enum", "formula": ""}
+    if not byte_len and tokens and tokens[-1].isdigit():
+        # Many CM presentations end with the payload byte count:
+        # PRES_CM_0001_DEC0_As_2.
+        byte_len = int(tokens[-1])
+    if not scale["scale_kind"]:
+        scale = _presentation_scale(tokens)
+    if not raw_type and byte_len in (1, 2, 4) and scale["scale_kind"] in {"binary", "decimal"}:
+        raw_type = {1: "ubyte", 2: "uword", 4: "ulong"}[byte_len]
+    return {"raw_type": raw_type, "byte_len": byte_len,
+            "unit": _presentation_unit(tokens), **scale}
+
+
+def presentation_raw_type(name: str) -> dict:
+    meta = presentation_meta(name)
+    return {"raw_type": meta["raw_type"], "byte_len": meta["byte_len"]}
+
+
+def presentation_records(path: Path) -> dict[str, dict]:
+    """Extract simple OutputPresentation records stored outside DiagService.
+
+    Caesar has richer presentation objects. This recognizes the common linear
+    conversion record layout found near the string-pool `PRES_*` qualifiers:
+    `<PRES...NUL><u32 kind=4><u16 method=0x30><float factor><float offset>`.
+    Unknown records are ignored and handled by presentation_meta(name).
+    """
+    r = Reader(path.read_bytes())
+    return _presentation_records(r)
+
+
+def _presentation_records(r: Reader) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for m in PRESENTATION_RE.finditer(r.d):
+        name = m.group(0)[:-1].decode("latin-1", "replace")
+        pos = m.end()
+        if pos + 14 > len(r.d):
+            continue
+        kind = struct.unpack_from("<I", r.d, pos)[0]
+        method = struct.unpack_from("<H", r.d, pos + 4)[0]
+        if kind != 4 or method != 0x30:
+            continue
+        factor, offset = struct.unpack_from("<ff", r.d, pos + 6)
+        if not all(math.isfinite(v) and abs(v) < 1e9 for v in (factor, offset)):
+            continue
+        formula = _linear_formula(factor, offset)
+        if not formula:
+            continue
+        meta = presentation_meta(name)
+        meta.update({"scale_kind": "linear", "formula": formula,
+                     "source": "cbf_presentation_record"})
+        out.setdefault(name, meta)
+    return out
+
+
 # --- ECU header: reach the VcDomain pool ------------------------------------
 def _ecu_vc_pool(r: Reader, base: int, data_buffer: int) -> dict:
     r.seek(base)
@@ -174,6 +460,32 @@ def _parse_diag_header(r: Reader, base: int) -> dict:
             "svc_type": svc_type, "name_ctf": name_ctf, "desc_ctf": desc_ctf}
 
 
+def _presentation_near(r: Reader, base: int, end: int,
+                       records: dict[str, dict] | None = None) -> dict:
+    """Find the first inline PRES_* qualifier inside a DiagService block."""
+    limit = min(max(base, end), base + 1024, len(r.d))
+    chunk = r.d[base:limit]
+    m = PRESENTATION_RE.search(chunk)
+    if not m:
+        return {"presentation": "", "presentation_raw_type": "", "presentation_byte_len": 0}
+    name = m.group(0)[:-1].decode("latin-1", "replace")
+    meta = presentation_meta(name)
+    source = "presentation_name" if (meta.get("unit") or meta.get("formula")) else ""
+    if records and name in records:
+        rec = records[name]
+        for key in ("raw_type", "byte_len", "unit", "scale_kind", "formula"):
+            if rec.get(key) not in ("", 0, None):
+                meta[key] = rec[key]
+        source = rec.get("source") or source
+    return {"presentation": name,
+            "presentation_raw_type": meta["raw_type"],
+            "presentation_byte_len": meta["byte_len"],
+            "presentation_unit": meta["unit"],
+            "presentation_scale_kind": meta["scale_kind"],
+            "presentation_formula": meta["formula"],
+            "presentation_meta_source": source}
+
+
 def diag_catalog(path: Path) -> dict:
     """Map diag-service qualifier -> {description, name, request, sec_level}.
 
@@ -183,6 +495,7 @@ def diag_catalog(path: Path) -> dict:
     r = Reader(path.read_bytes())
     cff = parse_cff(r)
     strings = load_ctf_strings(r, cff)
+    records = _presentation_records(r)
     data_buffer = cff["StringPoolSize"] + STUB_HEADER_SIZE + cff["CffHeaderSize"] + 4
     ecu_table = cff["EcuOffset"] + cff["BaseAddress"]
     out = {}
@@ -190,21 +503,28 @@ def diag_catalog(path: Path) -> dict:
         r.seek(ecu_table + i * 4)
         ecu_base = ecu_table + r.i32()
         pool = _ecu_vc_pool(r, ecu_base, data_buffer)
+        entries = []
         for j in range(pool.get("dj_count") or 0):
             r.seek(pool["dj_block"] + j * pool["dj_size"])
-            entry_off = r.i32()
+            entries.append(r.i32() + pool["dj_block"])
+        entries.sort()
+        for j, base in enumerate(entries):
             try:
-                h = _parse_diag_header(r, entry_off + pool["dj_block"])
+                h = _parse_diag_header(r, base)
             except Exception:  # noqa: BLE001
                 continue
             q = h.get("qualifier")
             if not q:
                 continue
+            end = entries[j + 1] if j + 1 < len(entries) else min(len(r.d), base + 1024)
+            pres = _presentation_near(r, base, end, records)
             desc = ctf(strings, h["desc_ctf"]) or ctf(strings, h["name_ctf"])
             out[q] = {"description": desc,
                       "name": ctf(strings, h["name_ctf"]),
                       "request": h["request"].hex().upper(),
-                      "sec_level": h["sec_level"]}
+                      "sec_level": h["sec_level"],
+                      "svc_type": h["svc_type"],
+                      **pres}
     return out
 
 

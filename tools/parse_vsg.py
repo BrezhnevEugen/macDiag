@@ -6,7 +6,7 @@ A .vsg is an engineer-built screen: a list of diagnostic jobs to read/trigger,
 with alias, unit, limits and value maps. Job-name prefixes:
     DT_   data parameter (live measurement, read)
     ADJ_  adjustment / adaptation value (read)
-    RT_   routine / actuator test (service procedure)
+    RT_/FN_ routine / actuator test (service procedure)
     ON_/OFF_/ST_  actuator control
 
 We classify a group as 'service' if it contains routines/actuators (RT_/ON_/OFF_
@@ -58,7 +58,7 @@ def parse_vsg(path: Path) -> dict:
         valmap = {}
         for k in s.findall("valmap/key"):
             valmap[_num(k.get("value"))] = (k.text or "").strip()
-        kind = ("routine" if job.startswith(("RT_", "ON_", "OFF_", "ST_"))
+        kind = ("routine" if job.startswith(("RT_", "FN_", "ON_", "OFF_", "ST_"))
                 else "adapt" if job.startswith("ADJ_")
                 else "data")
         if kind == "routine":

@@ -14,11 +14,102 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 EZS = ROOT / "data" / "cbf" / "EZS164.cbf"
-
-pytestmark = pytest.mark.skipif(not EZS.exists(),
-                                reason="proprietary CBF library not present")
+CRD3 = ROOT / "data" / "cbf" / "CRD3_DEV.CBF"
 
 
+def test_presentation_meta_from_qualifier_name():
+    from caesar_vc import presentation_meta
+
+    meta = presentation_meta("PRES_CM_0184_BIN7_BAR_UWORD")
+    assert meta == {
+        "raw_type": "uword",
+        "byte_len": 2,
+        "unit": "bar",
+        "scale_kind": "binary",
+        "formula": "x / 128",
+    }
+
+    ascii_meta = presentation_meta("PRES_100ByteASCII")
+    assert ascii_meta["raw_type"] == "ascii"
+    assert ascii_meta["byte_len"] == 100
+
+    assert presentation_meta("PRES_bool_1bit") == {
+        "raw_type": "bool",
+        "byte_len": 1,
+        "unit": "",
+        "scale_kind": "boolean",
+        "formula": "x != 0",
+    }
+    assert presentation_meta("PRES_bool_1bit_inverted")["formula"] == "x == 0"
+    bcd_meta = presentation_meta("PRES_BCD_8")
+    assert bcd_meta["raw_type"] == "bcd"
+    assert bcd_meta["byte_len"] == 4
+    assert bcd_meta["scale_kind"] == "bcd"
+    assert bcd_meta["formula"] == "bcd"
+
+    hex_meta = presentation_meta("PRES_HexDump_55_Bytes")
+    assert hex_meta["raw_type"] == "hexdump"
+    assert hex_meta["byte_len"] == 55
+
+    block_meta = presentation_meta("PRES_BLK_EngSpd_GearState_COL_format")
+    assert block_meta["raw_type"] == "block"
+    assert block_meta["scale_kind"] == "block"
+
+    assert presentation_meta("PRES_2ByteDump") == {
+        "raw_type": "hexdump",
+        "byte_len": 2,
+        "unit": "",
+        "scale_kind": "",
+        "formula": "",
+    }
+    assert presentation_meta("PRES_2ByteBcd") == {
+        "raw_type": "bcd",
+        "byte_len": 2,
+        "unit": "",
+        "scale_kind": "bcd",
+        "formula": "bcd",
+    }
+    assert presentation_meta("PRES_CM_0026_BIN0_NA_2") == {
+        "raw_type": "uword",
+        "byte_len": 2,
+        "unit": "",
+        "scale_kind": "binary",
+        "formula": "x",
+    }
+    assert presentation_meta("PRES_DOP_IDENTICAL_UINT_DEC_4_Bytes")["raw_type"] == "ulong"
+    assert presentation_meta("PRES_DOP_IDENTICAL_INT_DEC_2_Bytes")["raw_type"] == "sword"
+    assert presentation_meta("PRES_nein_ja_1Bit")["raw_type"] == "bool"
+    assert presentation_meta("PRES_nein_ja_1Bit")["formula"] == "x != 0"
+    assert presentation_meta("PRES_Bit_ja")["raw_type"] == "bool"
+    assert presentation_meta("PRES_Bit_ja")["formula"] == "x != 0"
+    yes_no = presentation_meta("PRES_DOP_PRESENTATION_Nein_Ja")
+    assert yes_no["raw_type"] == "ubyte"
+    assert yes_no["scale_kind"] == "enum"
+    assert yes_no["formula"] == ""
+    assert presentation_meta("PRES_Session_Type_7Bit")["raw_type"] == "ubyte"
+    assert presentation_meta("PRES_Session_Type_7Bit")["scale_kind"] == "enum"
+    assert presentation_meta("PRES_Volt")["unit"] == "V"
+    assert presentation_meta("PRES_Temp_Cels")["unit"] == "deg C"
+
+
+@pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
+def test_presentation_records_extract_linear_formula():
+    from caesar_vc import presentation_records
+
+    records = presentation_records(CRD3)
+    speed = records["PRES_5017_IN_Engine_cycle_speed_UWORD"]
+    assert speed["raw_type"] == "uword"
+    assert speed["byte_len"] == 2
+    assert speed["scale_kind"] == "linear"
+    assert speed["formula"] == "x * 0.25"
+    assert speed["source"] == "cbf_presentation_record"
+
+    soot = records["PRES_6043_P_T_Dpf_soot_mass_ULONG"]
+    assert soot["raw_type"] == "ulong"
+    assert soot["formula"] == "x * 0.01 - 50"
+
+
+@pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")
 def test_parse_cbf_ezs164():
     from parse_cbf import parse_cbf
     info = parse_cbf(EZS)
@@ -26,6 +117,7 @@ def test_parse_cbf_ezs164():
     assert info["protocol"] == "kwp"
 
 
+@pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")
 def test_comparam_real_can_ids():
     from caesar_comparam import parse_file
     cp = parse_file(EZS)["ecus"][0]["can"]
@@ -34,6 +126,7 @@ def test_comparam_real_can_ids():
     assert cp["CP_BAUDRATE"] == 83333
 
 
+@pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")
 def test_ecu_db_has_ezs164_ids():
     db = ROOT / "data" / "ecu_db.sqlite"
     if not db.exists():
@@ -43,3 +136,25 @@ def test_ecu_db_has_ezs164_ids():
         "SELECT can_request, can_response, baudrate FROM ecu WHERE name='EZS164'"
     ).fetchone()
     assert row == (0x4E0, 0x5FF, 83333)
+
+
+@pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
+def test_diag_catalog_extracts_output_presentation():
+    from caesar_vc import diag_catalog
+
+    cat = diag_catalog(CRD3)
+    soot = cat["DT_6043_P_T_Dpf_soot_mass"]
+    assert soot["presentation"] == "PRES_6043_P_T_Dpf_soot_mass_ULONG"
+    assert soot["presentation_raw_type"] == "ulong"
+    assert soot["presentation_byte_len"] == 4
+    assert soot["presentation_scale_kind"] == "linear"
+    assert soot["presentation_formula"] == "x * 0.01 - 50"
+    assert soot["presentation_meta_source"] == "cbf_presentation_record"
+
+    speed = cat["DT_5017_IN_Engine_cycle_speed"]
+    assert speed["presentation"] == "PRES_5017_IN_Engine_cycle_speed_UWORD"
+    assert speed["presentation_formula"] == "x * 0.25"
+
+    total_time = cat["DT_IOC352_Comb_nm_total_time"]
+    assert total_time["presentation"] == "PRES_IOC352"
+    assert total_time["presentation_raw_type"] == ""

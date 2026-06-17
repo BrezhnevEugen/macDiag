@@ -6,7 +6,7 @@ venv/
 .DS_Store
 .env
 
-# Proprietary MB data library (CBF/CFF/SMR/VSG ~7.5GB) — keep local, never commit
+# Proprietary MB data library (CBF/CFF/SMR/VSG/StarFinder) — keep local, never commit
 data/
 *.cbf
 *.CBF
@@ -26,4 +26,3 @@ driver/*.dll
 # local screenshots / recordings
 Снимок экрана*.png
 Запись экрана*.mov
-

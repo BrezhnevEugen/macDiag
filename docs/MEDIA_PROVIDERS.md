@@ -18,10 +18,21 @@ StarFinder хранит данные по сериям кузова в Electron-
 распаковывать не нужно. `backend/mb/asar.py` достаёт нужный файл/картинку из архива
 по смещению, открывая только заголовок + один файл (быстро даже для 230 МБ).
 
-Просто укажи папку `resources`:
+В этом проекте используемые архивы держим рядом с кодом:
 
 ```bash
-export MACDIAG_STARFINDER_DIR="/путь/к/StarFinder/resources"
+mkdir -p data/starfinder
+rsync -av --include='*.asar' --exclude='*' \
+  "/путь/к/StarFinder_webETM/System/resources/" data/starfinder/
+```
+
+`docker-compose.yml` уже монтирует `./data/starfinder` как `/starfinder` и задаёт
+`MACDIAG_STARFINDER_DIR=/starfinder`.
+
+При нативном запуске без Docker укажи ту же проектную папку:
+
+```bash
+export MACDIAG_STARFINDER_DIR="$PWD/data/starfinder"
 ```
 
 `/api/diag/providers` тогда покажет найденные архивы (`archives: ["164.asar", …]`).
@@ -36,8 +47,8 @@ python3 tools/inspect_asar.py /путь/к/164.asar --cat <страница.htm>
 
 ## Как подключить StarFinder (распакованный HTML)
 
-1. Перенеси/скопируй экспорт StarFinder на Mac (или примонтируй диск с Windows и
-   укажи путь к нему). Нужен корень, где лежат `.htm/.html` страницы и картинки.
+1. Перенеси/скопируй экспорт StarFinder внутрь проекта, например в
+   `data/starfinder-html/`. Нужен корень, где лежат `.htm/.html` страницы и картинки.
 2. Укажи путь приложению и перезапусти backend:
 
    ```bash

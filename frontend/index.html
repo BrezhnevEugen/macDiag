@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>macDiag — MB OBD</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=refs1">
 </head>
 <body>
   <header>
@@ -32,6 +32,8 @@
     <button data-tab="dtc" data-i18n="Ошибки">Ошибки</button>
     <button data-tab="modules" data-i18n="Модули">Модули</button>
     <button data-tab="coding" data-i18n="Кодирование">Кодирование</button>
+    <button data-tab="refs" data-i18n="Справка">Справка</button>
+    <button data-tab="dict" data-i18n="Словарь">Словарь</button>
   </nav>
 
   <main>
@@ -88,6 +90,7 @@
         <label class="muted"><span data-i18n="Группа">Группа</span> <select id="measGroup" style="min-width:280px"></select></label>
         <button id="measAuto" class="ghost" disabled data-i18n="▶ Авто">▶ Авто</button>
       </div>
+      <div id="measCoverage" class="coverage hidden"></div>
       <div id="measDesc" class="card hidden"></div>
       <div id="gauges" class="gauges"></div>
       <div id="measEmpty" class="muted" data-i18n="Выбери ЭБУ и группу измерений.">Выбери ЭБУ и группу измерений.</div>
@@ -177,6 +180,82 @@
         <pre id="codeOut" class="out" style="margin-top:12px"></pre>
       </details>
     </section>
+
+    <!-- REFERENCES -->
+    <section id="refs" class="tab">
+      <div class="row ref-toolbar">
+        <input id="refSearch" placeholder="поиск по CAN, gateway, W164…" data-i18n-ph="поиск по CAN, gateway, W164…" style="flex:1; min-width:260px">
+        <select id="refTag">
+          <option value="" data-i18n="Все теги">Все теги</option>
+        </select>
+        <select id="refVehicle">
+          <option value="" data-i18n="Все кузова">Все кузова</option>
+        </select>
+        <button id="refRefresh" class="ghost" data-i18n="Обновить">Обновить</button>
+      </div>
+      <div id="refStats" class="metrics"></div>
+      <div class="ref-pager">
+        <span id="refPageInfo" class="muted"></span>
+        <span style="flex:1"></span>
+        <button id="refPrev" class="ghost" data-i18n="Назад">Назад</button>
+        <button id="refNext" class="ghost" data-i18n="Вперёд">Вперёд</button>
+      </div>
+      <div id="refGrid" class="ref-grid"></div>
+      <p id="refEmpty" class="muted hidden" data-i18n="Ссылки не найдены.">Ссылки не найдены.</p>
+
+      <h3 data-i18n="Проверенные CAN факты">Проверенные CAN факты</h3>
+      <div id="canExampleStats" class="metrics"></div>
+      <div id="canExampleGrid" class="can-example-grid"></div>
+      <p id="canExampleEmpty" class="muted hidden" data-i18n="CAN факты не найдены.">CAN факты не найдены.</p>
+    </section>
+
+    <!-- DICTIONARY -->
+    <section id="dict" class="tab">
+      <div class="row dict-toolbar">
+        <label class="muted"><span data-i18n="Язык">Язык</span>
+          <select id="dictLang">
+            <option value="ru">RU</option>
+            <option value="en">EN</option>
+            <option value="de">DE</option>
+          </select>
+        </label>
+        <label class="muted"><span data-i18n="Тип">Тип</span>
+          <select id="dictKind">
+            <option value="all" data-i18n="Все">Все</option>
+            <option value="group" data-i18n="Группы">Группы</option>
+            <option value="service" data-i18n="Параметры">Параметры</option>
+          </select>
+        </label>
+        <label class="muted"><span data-i18n="Статус">Статус</span>
+          <select id="dictStatus">
+            <option value="missing" data-i18n="Не переведено">Не переведено</option>
+            <option value="translated" data-i18n="Переведено">Переведено</option>
+            <option value="all" data-i18n="Все">Все</option>
+          </select>
+        </label>
+        <input id="dictSearch" placeholder="поиск по ключу, исходнику, контексту…" data-i18n-ph="поиск по ключу, исходнику, контексту…" style="flex:1; min-width:260px">
+        <button id="dictRefresh" class="ghost" data-i18n="Обновить">Обновить</button>
+      </div>
+      <div id="dictStats" class="metrics"></div>
+      <div class="dict-pager">
+        <span id="dictPageInfo" class="muted"></span>
+        <span style="flex:1"></span>
+        <button id="dictPrev" class="ghost" data-i18n="Назад">Назад</button>
+        <button id="dictNext" class="ghost" data-i18n="Вперёд">Вперёд</button>
+      </div>
+      <table id="dictTable" class="dict-table">
+        <thead>
+          <tr>
+            <th data-i18n="Тип">Тип</th>
+            <th data-i18n="Исходник">Исходник</th>
+            <th data-i18n="Перевод">Перевод</th>
+            <th data-i18n="Действие">Действие</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="dictEmpty" class="muted hidden" data-i18n="Строки не найдены.">Строки не найдены.</p>
+    </section>
   </main>
 
   <div id="dbg" class="dbg">
@@ -193,7 +272,7 @@
   </div>
 
   <footer data-i18n="режим переключается в шапке (Эмулятор / Железо)">режим переключается в шапке (Эмулятор / Железо)</footer>
-  <script src="i18n.js"></script>
-  <script src="app.js"></script>
+  <script src="i18n.js?v=refs1"></script>
+  <script src="app.js?v=refs1"></script>
 </body>
 </html>
