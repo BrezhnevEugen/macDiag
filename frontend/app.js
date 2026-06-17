@@ -130,6 +130,8 @@ async function loadOverview() {
       `<div class="dim">ISO15765 · auto-baudrate ${t("из CBF")}</div>`
     : `<div class="dim">—</div>`;
   renderVehicle(v);
+  await populateChassis();
+  if (!_gw) applyChassis(null, false);           // no detection yet: show the fallback chooser
   setCarImage($("#ovChassis") && $("#ovChassis").value);
   // Identity (engine/chassis/equipment + car image) comes from the gateway —
   // pull it once on connect so the card fills without a manual «Опросить шлюз».
@@ -166,6 +168,36 @@ function setCarImage(chassis) {
   img.onload = () => { box.innerHTML = ""; box.appendChild(img); };
   img.src = "img/" + c.toLowerCase() + ".jpg";
 }
+// Chassis is auto-detected from the gateway; the dropdown is a manual fallback.
+const CHASSIS_LABEL = { X164: "X164 (GL)", W221: "W221 (S)", W251: "W251 (R)", C216: "C216 (CL)" };
+let _chassisLoaded = false;
+async function populateChassis() {
+  if (_chassisLoaded) return;
+  _chassisLoaded = true;
+  try {
+    const by = (await api("/api/db/stats")).by_chassis || {};
+    const sel = $("#ovChassis");
+    Object.entries(by).sort((a, b) => b[1] - a[1]).forEach(([c, n]) => {
+      const o = document.createElement("option");
+      o.value = c; o.textContent = `${CHASSIS_LABEL[c] || c} · ${n}`;
+      sel.appendChild(o);
+    });
+  } catch (e) { /* keep the «Все шасси» fallback option */ }
+}
+function applyChassis(token, auto) {
+  const det = $("#ovChassisDet"), sel = $("#ovChassis"), edit = $("#ovChassisEdit");
+  if (auto && token) {
+    if ([...sel.options].some((o) => o.value === token)) sel.value = token;
+    det.textContent = (t("шасси: ") + (CHASSIS_LABEL[token] || token));
+    det.classList.remove("hidden"); edit.classList.remove("hidden"); sel.classList.add("hidden");
+  } else {
+    det.classList.add("hidden"); edit.classList.add("hidden"); sel.classList.remove("hidden");
+  }
+}
+$("#ovChassisEdit") && ($("#ovChassisEdit").onclick = () => {
+  $("#ovChassis").classList.remove("hidden");
+  $("#ovChassisEdit").classList.add("hidden");
+});
 
 function renderVehicle(v) {
   if (!v.vin) {
@@ -275,10 +307,9 @@ function renderGateway(info) {
   _gatewayModules = (info.modules || []).filter((m) => m.configured !== false);
   // auto-select the detected chassis everywhere + show engine on the vehicle card
   if (info.chassis_token) {
-    ["#ovChassis", "#chassis"].forEach((s) => {
-      const el = $(s);
-      if (el && [...el.options].some((o) => o.value === info.chassis_token)) el.value = info.chassis_token;
-    });
+    const el = $("#chassis");
+    if (el && [...el.options].some((o) => o.value === info.chassis_token)) el.value = info.chassis_token;
+    applyChassis(info.chassis_token, true);       // auto-detected: hide the manual chooser
     setCarImage(info.chassis_token);
   }
   if (info.engine) {

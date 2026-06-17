@@ -63,12 +63,10 @@
           <div class="ov-poll-head">
             <span style="font-size:14px; font-weight:500" data-i18n="Быстрый опрос состояния">Быстрый опрос состояния</span>
             <span style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <span id="ovChassisDet" class="chip hidden" title="определено по шлюзу"></span>
+              <button id="ovChassisEdit" class="ghost hidden" type="button" data-i18n="изменить">изменить</button>
               <select id="ovChassis">
                 <option value="" data-i18n="Все шасси">Все шасси</option>
-                <option value="X164">X164 (GL)</option>
-                <option value="W221">W221 (S)</option>
-                <option value="W251">W251 (R)</option>
-                <option value="C216">C216 (CL)</option>
               </select>
               <button id="ovGw" class="ghost" data-i18n="Опросить шлюз">Опросить шлюз</button>
               <button id="ovScan" data-i18n="⚡ Сканировать">⚡ Сканировать</button>
