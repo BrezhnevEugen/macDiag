@@ -82,12 +82,6 @@
 
     <!-- LIVE -->
     <section id="live" class="tab">
-      <div class="row" style="margin-top:4px">
-        <button id="liveStart" data-i18n="▶ Старт потока (двигатель / OBD)">▶ Старт потока (двигатель / OBD)</button>
-        <button id="liveStop" class="ghost" disabled data-i18n="■ Стоп">■ Стоп</button>
-      </div>
-      <div id="pidGauges" class="gauges"></div>
-
       <h3 data-i18n="Группы измерений по ЭБУ">Группы измерений по ЭБУ</h3>
       <div class="row">
         <label class="muted"><span data-i18n="ЭБУ">ЭБУ</span> <select id="measEcu"><option value="" data-i18n="— выбери —">— выбери —</option></select></label>
@@ -98,6 +92,13 @@
       <div id="measDesc" class="card hidden"></div>
       <div id="gauges" class="gauges"></div>
       <div id="measEmpty" class="muted" data-i18n="Выбери ЭБУ и группу измерений.">Выбери ЭБУ и группу измерений.</div>
+
+      <h3 data-i18n="Поток двигателя / OBD">Поток двигателя / OBD</h3>
+      <div class="row" style="margin-top:4px">
+        <button id="liveStart" data-i18n="▶ Старт потока (двигатель / OBD)">▶ Старт потока (двигатель / OBD)</button>
+        <button id="liveStop" class="ghost" disabled data-i18n="■ Стоп">■ Стоп</button>
+      </div>
+      <div id="pidGauges" class="gauges"></div>
 
       <h3 data-i18n="Сервисные процедуры">Сервисные процедуры</h3>
       <div class="row">
