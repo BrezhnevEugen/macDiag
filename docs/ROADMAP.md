@@ -283,6 +283,18 @@
 - Следующий слой для enum - сохранить labels/value-map; `PRES_BLK*` таблицы
   остаются отдельной layout-задачей.
 
+Состояние после седьмого инкремента этапа 2:
+
+- `measurements.sqlite` schema v14 добавляет `service_outputs.value_map_json`.
+- Compact enum records теперь сохраняют CTF labels/value-map. Пример:
+  `PRES_GLPS_Adap_Mode -> [{0: Nein}, {1: Ja}]`,
+  `PRES_DTM_Gen_Mode_T -> Diagnosemodus aus/ein`.
+- Backend/API отдает `output_value_map` для параметров и помечает такие значения
+  как `value_source=enum`; hardware decode может заменить raw integer на label.
+- На текущей локальной базе: `output_value_maps=11704`, `raw_type=157336`,
+  `unit=38907`, `formula=94234`. Для `CEPC_MFA`: rawtype 508, formula 137 среди
+  545 matched rows.
+
 Состояние после справочного CAN-инкремента:
 
 - `measurements.sqlite` schema v10 содержит таблицы `reference_links` и
@@ -313,8 +325,8 @@
 
 Следующий крупный шаг:
 
-- Продолжить этап 2: сохранять labels/value-map для enum presentation records
-  (`PRES_GLPS...`, `PRES_GLZP...`, supplier/fingerprint lists) и затем разобрать
-  полноценный layout для `PRES_BLK*` таблиц.
+- Продолжить этап 2: разобрать полноценный layout для `PRES_BLK*` таблиц
+  (`EngSpd/GearState`, `EngTrq/GearState`, fuel/travel/start counters), чтобы
+  многострочные блоки перестали быть просто hex.
 - По справочному слою: пополнять `can_examples` проверенными фактами из W164/X164
   topology pages и привязать их к сценариям замены кластера/bench-проверки.

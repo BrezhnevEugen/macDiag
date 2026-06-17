@@ -266,7 +266,9 @@ def _raw_type_from_range(low: int, high: int) -> tuple[str, int]:
     return "bytes", 0
 
 
-def _presentation_enum_meta(data: bytes, pos: int, kind: int, method: int) -> dict | None:
+def _presentation_enum_meta(
+    data: bytes, pos: int, kind: int, method: int, strings: list[str] | None = None
+) -> dict | None:
     """Recognize compact enum/range records after a PRES_* qualifier."""
     if kind < 8 or kind % 4 != 0 or method != kind + 0x0E:
         return None
@@ -276,14 +278,16 @@ def _presentation_enum_meta(data: bytes, pos: int, kind: int, method: int) -> di
         return None
     lows = []
     highs = []
+    values = []
     for i in range(count):
         off = entry + i * 14
         marker = struct.unpack_from("<H", data, off)[0]
         if marker != 0x0403:
             return None
-        low, high = struct.unpack_from("<ii", data, off + 2)
+        low, high, label_idx = struct.unpack_from("<iiI", data, off + 2)
         lows.append(low)
         highs.append(high)
+        values.append({"low": low, "high": high, "label": ctf(strings or [], label_idx)})
     nonnegative_highs = [v for v in highs if v >= 0]
     if not nonnegative_highs:
         return None
@@ -295,6 +299,7 @@ def _presentation_enum_meta(data: bytes, pos: int, kind: int, method: int) -> di
         "byte_len": byte_len,
         "scale_kind": "enum",
         "formula": "",
+        "value_map": values,
         "source": "cbf_presentation_enum_record",
     }
 
@@ -419,10 +424,12 @@ def presentation_records(path: Path) -> dict[str, dict]:
     Unknown records are ignored and handled by presentation_meta(name).
     """
     r = Reader(path.read_bytes())
-    return _presentation_records(r)
+    cff = parse_cff(r)
+    strings = load_ctf_strings(r, cff)
+    return _presentation_records(r, strings)
 
 
-def _presentation_records(r: Reader) -> dict[str, dict]:
+def _presentation_records(r: Reader, strings: list[str] | None = None) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for m in PRESENTATION_RE.finditer(r.d):
         name = m.group(0)[:-1].decode("latin-1", "replace")
@@ -442,7 +449,7 @@ def _presentation_records(r: Reader) -> dict[str, dict]:
             if low >= high:
                 continue
         else:
-            enum_meta = _presentation_enum_meta(r.d, pos, kind, method)
+            enum_meta = _presentation_enum_meta(r.d, pos, kind, method, strings)
             if not enum_meta:
                 continue
             meta = presentation_meta(name)
@@ -451,6 +458,7 @@ def _presentation_records(r: Reader) -> dict[str, dict]:
                     meta[key] = enum_meta[key]
             meta["scale_kind"] = enum_meta["scale_kind"]
             meta["formula"] = enum_meta["formula"]
+            meta["value_map"] = enum_meta.get("value_map") or []
             meta["source"] = enum_meta["source"]
             out.setdefault(name, meta)
             continue
@@ -562,6 +570,7 @@ def _presentation_near(r: Reader, base: int, end: int,
             meta["scale_kind"] = rec["scale_kind"]
         if rec.get("formula") or rec.get("source") == "cbf_presentation_enum_record":
             meta["formula"] = rec.get("formula") or ""
+        meta["value_map"] = rec.get("value_map") or []
         source = rec.get("source") or source
     return {"presentation": name,
             "presentation_raw_type": meta["raw_type"],
@@ -569,6 +578,7 @@ def _presentation_near(r: Reader, base: int, end: int,
             "presentation_unit": meta["unit"],
             "presentation_scale_kind": meta["scale_kind"],
             "presentation_formula": meta["formula"],
+            "presentation_value_map": meta.get("value_map") or [],
             "presentation_meta_source": source}
 
 
@@ -581,7 +591,7 @@ def diag_catalog(path: Path) -> dict:
     r = Reader(path.read_bytes())
     cff = parse_cff(r)
     strings = load_ctf_strings(r, cff)
-    records = _presentation_records(r)
+    records = _presentation_records(r, strings)
     data_buffer = cff["StringPoolSize"] + STUB_HEADER_SIZE + cff["CffHeaderSize"] + 4
     ecu_table = cff["EcuOffset"] + cff["BaseAddress"]
     out = {}

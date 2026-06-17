@@ -25,11 +25,16 @@ def test_insert_service_output_preserves_explicit_empty_formula():
                 "presentation_scale_kind": "enum",
                 "presentation_formula": "",
                 "presentation_meta_source": "cbf_presentation_enum_record",
+                "presentation_value_map": [
+                    {"low": 0, "high": 0, "label": "Ja"},
+                    {"low": 1, "high": 1, "label": "Nein"},
+                ],
+                "presentation_meta_source": "cbf_presentation_enum_record",
             },
         )
         row = conn.execute(
             """
-            SELECT raw_type, byte_len, scale_kind, formula, source
+            SELECT raw_type, byte_len, scale_kind, formula, value_map_json, source
             FROM service_outputs
             """
         ).fetchone()
@@ -40,6 +45,7 @@ def test_insert_service_output_preserves_explicit_empty_formula():
         1,
         "enum",
         "",
+        '[{"low": 0, "high": 0, "label": "Ja"}, {"low": 1, "high": 1, "label": "Nein"}]',
         "cbf_diag_inline+cbf_presentation_enum_record",
     )
 
@@ -69,7 +75,7 @@ def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
         translation_count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0]
-    assert schema_version == "13"
+    assert schema_version == "14"
     assert translation_count == 3
 
     from backend.mb import measurements
@@ -369,9 +375,16 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
                 "svc_type": 1,
                 "name": "Soot mass",
                 "description": "DPF soot mass",
-                "presentation": "PRES_6043_P_T_Dpf_soot_mass_ULONG",
-                "presentation_raw_type": "ulong",
-                "presentation_byte_len": 4,
+                "presentation": "PRES_DOP_PRESENTATION_Nein_Ja",
+                "presentation_raw_type": "ubyte",
+                "presentation_byte_len": 1,
+                "presentation_scale_kind": "enum",
+                "presentation_formula": "",
+                "presentation_meta_source": "cbf_presentation_enum_record",
+                "presentation_value_map": [
+                    {"low": 0, "high": 0, "label": "Nein"},
+                    {"low": 1, "high": 1, "label": "Ja"},
+                ],
             },
             "DT_604B_P_T_Dpf_load_percent_wgh": {
                 "request": "2105",
@@ -398,6 +411,7 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
     assert stats["output_raw_types"] == 2
     assert stats["output_units"] == 1
     assert stats["output_formulas"] == 1
+    assert stats["output_value_maps"] == 1
     coverage_rows = measure_diag_coverage.coverage_rows(out, ["CRD3_DEV"])
     assert coverage_rows == [{
         "ecu": "CRD3_DEV",
@@ -431,7 +445,8 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
         ).fetchall()
         outputs = db.execute(
             """
-            SELECT qualifier, presentation, raw_type, byte_len, unit, scale_kind, formula, source
+            SELECT qualifier, presentation, raw_type, byte_len, unit, scale_kind,
+                   formula, value_map_json, source
             FROM service_outputs ORDER BY qualifier
             """
         ).fetchall()
@@ -444,10 +459,12 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
         ("DT_604B_P_T_Dpf_load_percent_wgh", "DT_604B_P_T_Dpf_load_percent_wgh", "exact", "exact", 1.0),
     ]
     assert outputs == [
-        ("DT_6043_P_T_Dpf_soot_mass", "PRES_6043_P_T_Dpf_soot_mass_ULONG",
-         "ulong", 4, "", "", "", "cbf_diag_inline"),
+        ("DT_6043_P_T_Dpf_soot_mass", "PRES_DOP_PRESENTATION_Nein_Ja",
+         "ubyte", 1, "", "enum", "",
+         '[{"low": 0, "high": 0, "label": "Nein"}, {"low": 1, "high": 1, "label": "Ja"}]',
+         "cbf_diag_inline+cbf_presentation_enum_record"),
         ("DT_604B_P_T_Dpf_load_percent_wgh", "PRES_CM_0184_BIN7_BAR_UWORD",
-         "uword", 2, "bar", "binary", "x / 128",
+         "uword", 2, "bar", "binary", "x / 128", "",
          "cbf_diag_inline+presentation_name"),
     ]
 
@@ -473,10 +490,14 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
     assert group["services"][0]["diag_description"] == "DPF soot mass"
     assert group["services"][0]["diag_qualifier"] == "DT_6043_P_T_Dpf_soot_mass"
     assert group["services"][0]["diag_match_kind"] == "exact"
-    assert group["services"][0]["output_presentation"] == "PRES_6043_P_T_Dpf_soot_mass_ULONG"
-    assert group["services"][0]["output_raw_type"] == "ulong"
-    assert group["services"][0]["output_byte_len"] == 4
-    assert group["services"][0]["value_source"] == "raw"
+    assert group["services"][0]["output_presentation"] == "PRES_DOP_PRESENTATION_Nein_Ja"
+    assert group["services"][0]["output_raw_type"] == "ubyte"
+    assert group["services"][0]["output_byte_len"] == 1
+    assert group["services"][0]["output_value_map"] == [
+        {"low": 0, "high": 0, "label": "Nein"},
+        {"low": 1, "high": 1, "label": "Ja"},
+    ]
+    assert group["services"][0]["value_source"] == "enum"
     assert group["services"][1]["output_unit"] == "bar"
     assert group["services"][1]["output_formula"] == "x / 128"
     assert group["services"][1]["value_source"] == "scaled"
@@ -695,6 +716,16 @@ def test_hardware_read_values_blocks_non_read_only_requests(tmp_path: Path, monk
 def test_apply_output_formula_supports_linear_records():
     from backend.mb import measurements
 
+    assert measurements._apply_output_formula(
+        1,
+        {
+            "output_scale_kind": "enum",
+            "output_value_map": [
+                {"low": 0, "high": 0, "label": "Nein"},
+                {"low": 1, "high": 1, "label": "Ja"},
+            ],
+        },
+    ) == ("Ja", "enum")
     assert measurements._apply_output_formula(
         5010, {"output_formula": "x * 0.01 - 50"}
     ) == (0.1, "scaled")

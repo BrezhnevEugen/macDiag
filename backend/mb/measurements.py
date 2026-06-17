@@ -75,6 +75,10 @@ def _table_exists(db: sqlite3.Connection, table: str) -> bool:
     ).fetchone() is not None
 
 
+def _table_has_column(db: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row[1] == column for row in db.execute(f"PRAGMA table_info({table})"))
+
+
 @lru_cache(maxsize=1)
 def _index() -> list[dict]:
     """Measurement group summaries. Prefer generated SQLite, fallback to raw."""
@@ -667,6 +671,7 @@ def _attach_diag_meta(svc: dict, info: dict | None) -> dict:
         svc["output_presentation"] = info.get("presentation") or ""
         svc["output_raw_type"] = info.get("presentation_raw_type") or ""
         svc["output_byte_len"] = info.get("presentation_byte_len") or 0
+        svc["output_value_map"] = info.get("presentation_value_map") or []
         svc["value_source"] = "raw"
     if info.get("cbf_file"):
         svc["diag_source"] = info.get("cbf_file")
@@ -900,19 +905,27 @@ def _db_group(path: str) -> dict | None:
             has_diag = _table_exists(db, "diag_services")
             has_matches = _table_exists(db, "diag_service_matches")
             has_outputs = _table_exists(db, "service_outputs")
+            has_output_value_maps = (
+                has_outputs and _table_has_column(db, "service_outputs", "value_map_json")
+            )
             output_join = """
                     LEFT JOIN service_outputs AS o
                       ON o.ecu = d.ecu
                      AND o.qualifier = d.qualifier
             """ if has_outputs else ""
+            output_value_map_expr = (
+                "o.value_map_json" if has_output_value_maps else "''"
+            )
             output_cols = (
                 "o.presentation AS output_presentation, o.raw_type AS output_raw_type, "
                 "o.byte_len AS output_byte_len, o.unit AS output_unit, "
-                "o.scale_kind AS output_scale_kind, o.formula AS output_formula"
+                "o.scale_kind AS output_scale_kind, o.formula AS output_formula, "
+                f"{output_value_map_expr} AS output_value_map_json"
                 if has_outputs else
                 "NULL AS output_presentation, NULL AS output_raw_type, "
                 "NULL AS output_byte_len, NULL AS output_unit, "
-                "NULL AS output_scale_kind, NULL AS output_formula"
+                "NULL AS output_scale_kind, NULL AS output_formula, "
+                "NULL AS output_value_map_json"
             )
             if has_diag and has_matches:
                 rows = db.execute(
@@ -998,6 +1011,12 @@ def _db_group(path: str) -> dict | None:
                     })
                     if s["output_presentation"]:
                         output_unit = s["output_unit"] or ""
+                        output_value_map = []
+                        if s["output_value_map_json"]:
+                            try:
+                                output_value_map = json.loads(s["output_value_map_json"])
+                            except json.JSONDecodeError:
+                                output_value_map = []
                         if output_unit and not item["unit"]:
                             item["unit"] = output_unit
                         item.update({
@@ -1007,8 +1026,10 @@ def _db_group(path: str) -> dict | None:
                             "output_unit": output_unit,
                             "output_scale_kind": s["output_scale_kind"] or "",
                             "output_formula": s["output_formula"] or "",
+                            "output_value_map": output_value_map,
                             "value_source": (
-                                "scaled" if s["output_scale_kind"] else "raw"
+                                "enum" if s["output_scale_kind"] == "enum"
+                                else "scaled" if s["output_scale_kind"] else "raw"
                             ),
                         })
                 services.append(item)
@@ -1105,6 +1126,19 @@ def _apply_output_formula(value, svc: dict) -> tuple[object, str]:
     """Apply only simple, reviewed formula strings from PRES_* metadata."""
     if not isinstance(value, (int, float)):
         return value, "raw"
+    if (svc.get("output_scale_kind") or "") == "enum":
+        for entry in svc.get("output_value_map") or []:
+            try:
+                low = entry.get("low")
+                high = entry.get("high")
+                if low is None or high is None:
+                    continue
+                if int(low) <= int(value) <= int(high):
+                    label = entry.get("label") or ""
+                    return (label or value), "enum"
+            except (TypeError, ValueError, AttributeError):
+                continue
+        return value, "enum"
     formula = (svc.get("output_formula") or "").strip()
     if not formula:
         return value, "raw"

@@ -142,6 +142,10 @@ def test_presentation_records_extract_enum_record():
     assert glps["scale_kind"] == "enum"
     assert glps["formula"] == ""
     assert glps["source"] == "cbf_presentation_enum_record"
+    assert glps["value_map"] == [
+        {"low": 0, "high": 0, "label": "Nein"},
+        {"low": 1, "high": 1, "label": "Ja"},
+    ]
 
     bool_record = records["PRES_bool_1bit_inverted"]
     assert bool_record["raw_type"] == "ubyte"
@@ -198,3 +202,19 @@ def test_diag_catalog_extracts_output_presentation():
     total_time = cat["DT_IOC352_Comb_nm_total_time"]
     assert total_time["presentation"] == "PRES_IOC352"
     assert total_time["presentation_raw_type"] == ""
+
+
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_diag_catalog_extracts_enum_value_map():
+    from caesar_vc import diag_catalog
+
+    cat = diag_catalog(CEPC_MFA)
+    glps = cat["DT_Neutralgangsensor"]
+    assert glps["presentation"] == "PRES_GLPS_Adap_Mode"
+    assert glps["presentation_raw_type"] == "ubyte"
+    assert glps["presentation_scale_kind"] == "enum"
+    assert glps["presentation_formula"] == ""
+    assert glps["presentation_value_map"] == [
+        {"low": 0, "high": 0, "label": "Nein"},
+        {"low": 1, "high": 1, "label": "Ja"},
+    ]

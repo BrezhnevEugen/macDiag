@@ -120,6 +120,7 @@ CREATE TABLE service_outputs (
   unit TEXT NOT NULL DEFAULT '',
   scale_kind TEXT NOT NULL DEFAULT '',
   formula TEXT NOT NULL DEFAULT '',
+  value_map_json TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL,
   PRIMARY KEY (ecu, qualifier)
 );
@@ -295,6 +296,7 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
         else meta["scale_kind"]
     )
     formula = info["presentation_formula"] if "presentation_formula" in info else meta["formula"]
+    value_map = info.get("presentation_value_map") or meta.get("value_map") or []
     source = "cbf_diag_inline"
     meta_source = info.get("presentation_meta_source") or (
         "presentation_name" if (unit or formula) else ""
@@ -304,11 +306,14 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     conn.execute(
         """
         INSERT OR IGNORE INTO service_outputs(
-          ecu, qualifier, presentation, raw_type, byte_len, unit, scale_kind, formula, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ecu, qualifier, presentation, raw_type, byte_len, unit, scale_kind,
+          formula, value_map_json, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (_norm_ecu(ecu), qualifier, presentation, raw_type, byte_len,
-         unit, scale_kind, formula, source),
+         unit, scale_kind, formula,
+         json.dumps(value_map, ensure_ascii=False) if value_map else "",
+         source),
     )
 
 
@@ -506,7 +511,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
              "diag_normalized_matched_services": 0, "diag_unmatched_services": 0,
              "diag_cbf_missing_ecus": 0, "diag_parse_errors": 0,
              "output_presentations": 0, "output_raw_types": 0,
-             "output_units": 0, "output_formulas": 0,
+             "output_units": 0, "output_formulas": 0, "output_value_maps": 0,
              "reference_links": 0, "can_examples": 0}
     cbf_by_ecu = _cbf_files(cbf_dir)
     stats["diag_cbf_files"] = len(cbf_by_ecu)
@@ -516,7 +521,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
     conn = sqlite3.connect(tmp)
     try:
         conn.executescript(SCHEMA)
-        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "13"))
+        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "14"))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("built_at", str(time.time())))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("vsg_dir", str(vsg_dir)))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("mwg_dir", str(mwg_dir)))
@@ -624,6 +629,9 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
         ).fetchone()[0]
         stats["output_formulas"] = conn.execute(
             "SELECT COUNT(*) FROM service_outputs WHERE formula <> ''"
+        ).fetchone()[0]
+        stats["output_value_maps"] = conn.execute(
+            "SELECT COUNT(*) FROM service_outputs WHERE value_map_json <> ''"
         ).fetchone()[0]
         stats["reference_links"] = _insert_reference_links(conn, references_json)
         stats["can_examples"] = _insert_can_examples(conn, can_examples_json)
