@@ -37,9 +37,12 @@ PROFILE = {
         "21E0": "7F2111", "1092": "7F1012", "22F190": None,
     }},
     # ---- engine (ME-SFI M273, UDS @ 0x7E0): OBD mode 03 works ----
+    # 1A90 carries the VIN so the dashboard auto-reads it on connect (sample VIN
+    # of an X164 GL with M273; decodes to Mercedes SUV, MY2008).
     0x7E0: {"name": "engine", "resp": {
         "3E00": _NRC_TP, "1902FF": "7F1911", "18FFFF00": _NRC_DTC18_12,
-        "03": "4300", "1A90": None, "22F190": None, "0902": None,
+        "03": "4300", "1A90": "5A905744433136343837413841313233343536",
+        "22F190": None, "0902": None,
     }},
     0x7E1: {"name": "VGS", "resp": {
         "3E00": "7E00", "1902FF": "7F1911", "18FFFF00": _NRC_DTC18_12, "03": "7F0311",
