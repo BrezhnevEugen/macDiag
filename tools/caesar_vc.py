@@ -584,7 +584,7 @@ def _parse_diag_presentation(r: Reader, base: int, strings: list[str]) -> dict:
     """Parse a DiagPresentation: width, byte order, sign, unit, linear scale."""
     r.seek(base)
     bf = Bitflags(r.u32())
-    r.u16()                                   # extended bitflags (fields >32)
+    ext = r.u16()                             # extended bitflags (fields >32)
     qualifier = rf_str(r, bf, base)           # 1 Qualifier
     rf_int(r, bf, 4, -1)                       # 2 Description_CTF
     scale_off = rf_int(r, bf, 4, -1)          # 3 ScaleTableOffset (rel to base)
@@ -606,8 +606,13 @@ def _parse_diag_presentation(r: Reader, base: int, strings: list[str]) -> dict:
     rf_int(r, bf, 1)                           # 29 Unk1d
     sign_bit = rf_int(r, bf, 1)              # 30 SignBit
     byte_order = rf_int(r, bf, 1)            # 31 ByteOrder
-    # TypeLength is a byte count when Type_1C == 0, otherwise a bit count.
-    width_bits = type_len * 8 if type_1c == 0 else type_len
+    rf_int(r, bf, 4)                           # 32 Unk20 (last of the u32 bitflag)
+    bf = Bitflags(ext)                         # fields >32 use the extended bitflag
+    type_len_bytes = rf_int(r, bf, 4)        # 33 TypeLengthBytesMaybe_21 (fallback)
+    # Width: TypeLength_1A if set, else the byte-count fallback; *8 when the type
+    # is expressed in bytes (Type_1C == 0).
+    base_len = type_len if type_len > 0 else type_len_bytes
+    width_bits = base_len * 8 if type_1c == 0 else base_len
     scales = []
     if scale_off >= 0 and 0 < scale_count <= 0x400:
         table = base + scale_off
