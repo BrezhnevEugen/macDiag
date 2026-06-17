@@ -92,6 +92,10 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_Volt")["unit"] == "V"
     assert presentation_meta("PRES_IN_Battery_voltage")["unit"] == "V"
     assert presentation_meta("PRES_Temp_Cels")["unit"] == "deg C"
+    assert presentation_meta("PRES_Trq")["unit"] == "Nm"
+    assert presentation_meta("PRES_Tastverhaeltnis_E")["unit"] == "%"
+    assert presentation_meta("PRES_Pres_Rail")["unit"] == "bar"
+    assert presentation_meta("PRES_EngN")["unit"] == "rpm"
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")

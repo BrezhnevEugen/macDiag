@@ -199,6 +199,22 @@ def _presentation_unit(tokens: list[str]) -> str:
         unit = PRESENTATION_UNITS.get(t)
         if unit:
             return unit
+    return _presentation_semantic_unit(tokens)
+
+
+def _presentation_semantic_unit(tokens: list[str]) -> str:
+    up = "_".join(tokens)
+    token_set = set(tokens)
+    if token_set & {"TRQ", "TORQUE", "DREHMOMENT"}:
+        return "Nm"
+    if token_set & {"TASTVERHAELTNIS", "DTYCYC", "DUTYCYC"}:
+        return "%"
+    if token_set & {"ENGN", "MOTORDREHZAHL"}:
+        return "rpm"
+    if "PRES_RAIL" in up or token_set & {"DRUCK"}:
+        return "bar"
+    if token_set & {"SPANNUNG"}:
+        return "V"
     return ""
 
 
