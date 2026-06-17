@@ -986,6 +986,35 @@ def test_raw_value_decodes_signed_types():
     ) == 0xFFC0
 
 
+def test_sim_response_round_trips_through_real_decode():
+    """The simulator synthesizes a raw response that the real decode path turns
+    back into an in-range value (parity with hardware)."""
+    from backend.mb import measurements
+
+    base = {"output_raw_type": "uword", "output_byte_len": 2, "output_bit_pos": 24,
+            "output_bit_len": 16, "output_byte_order": "big", "output_signed": 0}
+    req = bytes.fromhex("220123")
+
+    scaled = {**base, "output_formula": "x / 128", "output_unit": "bar",
+              "output_scale_kind": "linear", "low": 0, "high": 10}
+    resp = measurements._sim_response(req, scaled, 0.0, 0)
+    raw = measurements._raw_value(req, resp, scaled)
+    val, src = measurements._apply_output_formula(raw, scaled)
+    assert src == "scaled"
+    assert 0 <= val <= 10                    # in range
+    assert abs(val - raw / 128) < 1e-6       # decode is the real inverse of the synth
+
+    # enum: the synthesized raw resolves to a real label.
+    enum = {**base, "output_byte_len": 1, "output_bit_len": 8, "output_scale_kind": "enum",
+            "output_value_map": [{"low": 0, "high": 0, "label": "Off"},
+                                 {"low": 1, "high": 1, "label": "On"}]}
+    resp = measurements._sim_response(req, enum, 0.0, 0)
+    val, src = measurements._apply_output_formula(
+        measurements._raw_value(req, resp, enum), enum)
+    assert src == "enum"
+    assert val in ("Off", "On")
+
+
 def test_raw_value_extracts_sub_byte_fields():
     """bit_len carries the authoritative width; sub-byte fields extract by bits,
     and wide non-byte-aligned fields are unreadable (not guessed)."""

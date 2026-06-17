@@ -1313,12 +1313,116 @@ def _apply_output_formula(value, svc: dict) -> tuple[object, str]:
     return int(scaled), "scaled"
 
 
+def _decode_response(req: bytes, resp: bytes, svc: dict):
+    """Single decode path shared by hardware and simulator: slice the field from
+    the response and apply its scaling/enum mapping."""
+    return _apply_output_formula(_raw_value(req, resp, svc), svc)
+
+
+def _sim_raw_int(svc: dict, t: float, i: int) -> int:
+    """Pick a plausible raw integer for the simulator so that, after the field's
+    real formula, the value lands inside [low, high] when known."""
+    width = int(svc.get("output_bit_len")
+                or (int(svc.get("output_byte_len") or 0) * 8) or 8)
+    signed = bool(svc.get("output_signed"))
+    vmap = svc.get("output_value_map") or []
+    if (svc.get("output_scale_kind") or "") == "enum" and vmap:
+        entry = vmap[int(t / 2 + i) % len(vmap)]
+        try:
+            return int(entry.get("low"))
+        except (TypeError, ValueError):
+            return 0
+    lo, hi = svc.get("low"), svc.get("high")
+    if lo is None or hi is None or hi == lo:
+        phys = 1.0 + (i % 7)
+    else:
+        phys = lo + (hi - lo) * (0.5 + 0.4 * math.sin(t / 3.0 + i))
+    formula = (svc.get("output_formula") or "").strip()
+    if formula in ("x != 0", "x == 0"):
+        raw = 1 if int(t / 2 + i) % 2 == 0 else 0
+    elif formula in ("", "x", "bcd"):
+        raw = phys
+    else:
+        m = re.fullmatch(r"x / ([1-9][0-9]*)", formula)
+        if m:
+            raw = phys * int(m.group(1))
+        else:
+            m = re.fullmatch(
+                r"x \* (-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+))(?: ([+-]) ([0-9]+(?:\.[0-9]+)?|\.[0-9]+))?",
+                formula)
+            if m:
+                f = float(m.group(1)) or 1.0
+                base = phys
+                if m.group(2):
+                    o = float(m.group(3))
+                    base = base - o if m.group(2) == "+" else base + o
+                raw = base / f
+            else:
+                raw = phys
+    raw = int(round(raw))
+    if signed:
+        limit = 1 << (width - 1)
+        return max(-limit, min(limit - 1, raw))
+    return max(0, min((1 << width) - 1, raw))
+
+
+def _place_value(buf: bytearray, bit_pos: int, width: int, raw: int,
+                 byte_order: str, signed: bool) -> None:
+    """Write `raw` into `buf` at (bit_pos, width) using the same byte/bit order
+    that _raw_value/_extract_bits read back, so the simulator round-trips."""
+    if bit_pos % 8 == 0 and width % 8 == 0:
+        nbytes = width // 8
+        order = "little" if byte_order == "little" else "big"
+        try:
+            b = int(raw).to_bytes(nbytes, order, signed=signed)
+        except OverflowError:
+            b = (int(raw) & ((1 << width) - 1)).to_bytes(nbytes, order)
+        buf[bit_pos // 8: bit_pos // 8 + nbytes] = b
+        return
+    for j in range(width):                       # sub-byte: LSB-first, as _extract_bits
+        absolute = bit_pos + j
+        bi = absolute // 8
+        if bi >= len(buf):
+            break
+        if (int(raw) >> j) & 1:
+            buf[bi] |= 1 << (absolute % 8)
+        else:
+            buf[bi] &= ~(1 << (absolute % 8))
+
+
+def _sim_response(req: bytes, svc: dict, t: float, i: int) -> bytes:
+    """Synthesize a positive UDS/KWP response whose field bytes decode (through
+    the real path) to a plausible value."""
+    if req and req[0] == 0x22 and len(req) >= 3:
+        head = bytes([0x62]) + req[1:3]
+    elif req and req[0] == 0x21 and len(req) >= 2:
+        head = bytes([0x61]) + req[1:2]
+    elif req:
+        head = bytes([(req[0] + 0x40) & 0xFF])
+    else:
+        head = b"\x62"
+    bit_pos = svc.get("output_bit_pos")
+    width = int(svc.get("output_bit_len")
+                or (int(svc.get("output_byte_len") or 0) * 8) or 0)
+    if bit_pos is None or width <= 0:
+        bit_pos = len(head) * 8                   # no layout: value right after header
+        width = max(8, int(svc.get("output_byte_len") or 1) * 8)
+    bit_pos = int(bit_pos)
+    end_byte = (bit_pos + width + 7) // 8
+    buf = bytearray(max(len(head), end_byte) + 1)
+    buf[0:len(head)] = head
+    _place_value(buf, bit_pos, width, _sim_raw_int(svc, t, i),
+                 svc.get("output_byte_order") or "big", bool(svc.get("output_signed")))
+    return bytes(buf)
+
+
 def read_values(path: str, lang: str = "ru", hw: bool = False, client=None) -> list[dict]:
     """Return current values for a group's data parameters.
 
-    Simulator: synthesize plausible values within each parameter's limits.
-    Hardware: TODO scale raw job responses (needs output-presentation parsing);
-    for now still synthesizes so the dashboard renders.
+    Both hardware and simulator now run the SAME path: build the job's request,
+    apply the read-only guard, obtain a response (real adapter vs synthesized),
+    then decode/scale it. Each value carries a per-parameter debug record
+    (request, response, raw integer) so reads can be inspected without a car.
     """
     g = get_group(path, lang)
     if not g:
@@ -1329,42 +1433,38 @@ def read_values(path: str, lang: str = "ru", hw: bool = False, client=None) -> l
     for i, s in enumerate(g["services"]):
         if s["kind"] == "routine":
             continue
+        reqhex = s.get("req")
+        if not reqhex:
+            if cat is None:
+                cat = _diag_cat(g["ecu"])
+            reqhex = cat.get(s["job"], {}).get("request")
+        guard = _hardware_read_guard(s, reqhex)
         val = None
-        value_source = "simulated"
-        read_status = "simulated"
-        read_reason = ""
-        read_req = s.get("req") or ""
-        read_sid = s.get("sid_hex") or ""
-        # hardware: read the real (raw) value via the job's request bytes
-        if hw and client:
-            reqhex = s.get("req")
-            if not reqhex:
-                if cat is None:
-                    cat = _diag_cat(g["ecu"])
-                reqhex = cat.get(s["job"], {}).get("request")
-            guard = _hardware_read_guard(s, reqhex)
-            read_status = guard["status"]
-            read_reason = guard.get("reason", "")
-            read_req = guard.get("req", reqhex or "")
-            read_sid = guard.get("sid_hex", "")
-            if guard["allowed"]:
-                try:
-                    rb = bytes.fromhex(guard["req"])
-                    val = _raw_value(rb, client.raw_request(rb), s)
-                    val, value_source = _apply_output_formula(val, s)
-                    read_status = "hw_ok"
-                except Exception:  # noqa: BLE001
-                    read_status = "error"
-                    read_reason = "hardware request failed"
-                    val = None
-        if val is None:
-            lo = s["low"] if s["low"] is not None else 0
-            hi = s["high"] if s["high"] is not None else 100
-            val = round(lo + (hi - lo) * (0.5 + 0.45 * math.sin(t / 3 + i)), 2)
-            if s.get("valmap") and not s["unit"]:
-                lbl = s["valmap"].get(int(round(val)))
-                if lbl and lbl != "?":
-                    val = lbl
+        value_source = "raw"
+        read_status = guard["status"]
+        read_reason = guard.get("reason", "")
+        read_req = guard.get("req", reqhex or "")
+        read_sid = guard.get("sid_hex", "")
+        read_resp = ""
+        read_raw = None
+        if guard["allowed"] and (client or not hw):
+            rb = bytes.fromhex(guard["req"])
+            try:
+                resp = client.raw_request(rb) if hw else _sim_response(rb, s, t, i)
+                read_resp = resp.hex().upper()[:48]
+                read_raw = _raw_value(rb, resp, s)
+                val, value_source = _apply_output_formula(read_raw, s)
+                read_status = "hw_ok" if hw else "simulated"
+            except Exception:  # noqa: BLE001
+                read_status = "error"
+                read_reason = "hardware request failed" if hw else "decode failed"
+                val = None
+            if val is None and read_status not in ("error",):
+                read_status = "na"
+                read_reason = read_reason or "field could not be read precisely"
+        elif guard["allowed"] and hw and not client:
+            read_status = "blocked"
+            read_reason = "adapter not connected"
         unit = s.get("unit") or s.get("output_unit") or ""
         out.append({"job": s["job"],
                     "localization_key": s.get("localization_key") or _service_l10n_key(s["job"]),
@@ -1373,5 +1473,6 @@ def read_values(path: str, lang: str = "ru", hw: bool = False, client=None) -> l
                     "low": s["low"], "high": s["high"], "kind": s["kind"],
                     "value_source": value_source,
                     "read_status": read_status, "read_reason": read_reason,
-                    "read_req": read_req, "read_sid": read_sid})
+                    "read_req": read_req, "read_sid": read_sid,
+                    "read_resp": read_resp, "read_raw": read_raw})
     return out
