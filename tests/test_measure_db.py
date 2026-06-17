@@ -69,7 +69,7 @@ def test_insert_service_output_infers_linear_raw_type_from_layout():
             {
                 "presentation": "PRES_EngN",
                 "presentation_raw_type": "",
-                "presentation_byte_len": 0,
+                "presentation_byte_len": 1,
                 "presentation_unit": "rpm",
                 "presentation_scale_kind": "linear",
                 "presentation_formula": "x * 0.5",
