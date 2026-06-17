@@ -360,8 +360,10 @@ def presentation_meta(name: str) -> dict:
         scale = {"scale_kind": "boolean", "formula": "x != 0"}
     elif re.search(
         r"(NEIN[_\s]*JA|JA[_\s]*NEIN|YES[_\s]*NO|NO[_\s]*YES|"
-        r"FALSE[_\s]*TRUE|TRUE[_\s]*FALSE|INAKTIV[_\s]*AKTIV|"
-        r"AUS[_\s]*EIN|OFF[_\s]*ON|NULL[_\s]*EINS)",
+        r"FALSE[_\s]*(?:OR[_\s]*)?TRUE|TRUE[_\s]*(?:OR[_\s]*)?FALSE|"
+        r"INAKTIV[_\s]*AKTIV|ACTIVE[_\s]*NOT[_\s]*ACTIVE|"
+        r"AUS[_\s]*EIN|OFF[_\s]*ON|ON[_\s]*OFF|SIGON[_\s]*OFF|"
+        r"NULL[_\s]*EINS|PENDING[_\s]*UNDEFINIERT[_\s]*OK[_\s]*FAULT)",
         up,
     ):
         raw_type = "ubyte"

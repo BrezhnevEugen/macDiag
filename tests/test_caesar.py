@@ -87,6 +87,13 @@ def test_presentation_meta_from_qualifier_name():
     assert yes_no["raw_type"] == "ubyte"
     assert yes_no["scale_kind"] == "enum"
     assert yes_no["formula"] == ""
+    active = presentation_meta("PRES_Active_Not_active")
+    assert active["raw_type"] == "ubyte"
+    assert active["scale_kind"] == "enum"
+    assert presentation_meta("PRES_SigOn_Off")["raw_type"] == "ubyte"
+    pending = presentation_meta("PRES_DOP_PRESENTATION_Pending_Undefiniert_Ok_Fault")
+    assert pending["raw_type"] == "ubyte"
+    assert pending["scale_kind"] == "enum"
     assert presentation_meta("PRES_Session_Type_7Bit")["raw_type"] == "ubyte"
     assert presentation_meta("PRES_Session_Type_7Bit")["scale_kind"] == "enum"
     assert presentation_meta("PRES_Volt")["unit"] == "V"
