@@ -58,6 +58,39 @@ def test_insert_service_output_preserves_explicit_empty_formula():
     )
 
 
+def test_insert_service_output_infers_linear_raw_type_from_layout():
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.executescript(build_measure_db.SCHEMA)
+        build_measure_db._insert_service_output(
+            conn,
+            "CRD3_DEV",
+            "DT_ENGINE_SPEED",
+            {
+                "presentation": "PRES_EngN",
+                "presentation_raw_type": "",
+                "presentation_byte_len": 0,
+                "presentation_unit": "rpm",
+                "presentation_scale_kind": "linear",
+                "presentation_formula": "x * 0.5",
+                "presentation_meta_source": "cbf_presentation_record",
+                "presentation_bit_pos": 24,
+                "presentation_bit_len": 16,
+                "presentation_byte_offset": 3,
+                "presentation_bit_offset": 0,
+            },
+        )
+        row = conn.execute(
+            """
+            SELECT raw_type, byte_len, unit, scale_kind, formula, bit_len
+            FROM service_outputs
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("uword", 2, "rpm", "linear", "x * 0.5", 16)
+
+
 def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
     vsg_dir = tmp_path / "vsg"
     mwg_dir = tmp_path / "raw"

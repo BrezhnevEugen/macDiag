@@ -305,6 +305,8 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     bit_len = info.get("presentation_bit_len")
     byte_offset = info.get("presentation_byte_offset")
     bit_offset = info.get("presentation_bit_offset")
+    if not raw_type and not byte_len and bit_offset == 0 and scale_kind == "linear":
+        raw_type, byte_len = _raw_type_from_layout(bit_len)
     source = "cbf_diag_inline"
     meta_source = info.get("presentation_meta_source") or (
         "presentation_name" if (unit or formula) else ""
@@ -323,6 +325,18 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
          json.dumps(value_map, ensure_ascii=False) if value_map else "",
          bit_pos, bit_len, byte_offset, bit_offset, source),
     )
+
+
+def _raw_type_from_layout(bit_len) -> tuple[str, int]:
+    try:
+        bit_len = int(bit_len)
+    except (TypeError, ValueError):
+        return "", 0
+    return {
+        8: ("ubyte", 1),
+        16: ("uword", 2),
+        32: ("ulong", 4),
+    }.get(bit_len, ("", 0))
 
 
 def _insert_diag_catalog(conn: sqlite3.Connection, ecu: str, diag: dict,
