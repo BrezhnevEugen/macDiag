@@ -205,6 +205,9 @@ def _presentation_unit(tokens: list[str]) -> str:
 def _presentation_semantic_unit(tokens: list[str]) -> str:
     up = "_".join(tokens)
     token_set = set(tokens)
+    m = re.search(r"(?:TIMING|TIME).*_(\d+)(MS|MSEC|S|SEC)(?:_|$)", up)
+    if m:
+        return "ms" if m.group(2) in {"MS", "MSEC"} else "s"
     if any(t in {"CNTR", "CNT", "COUNTER", "CTNUM", "CTDENOM"} or
            (t.endswith("CTR") and t != "FCTR")
            for t in token_set):
@@ -225,6 +228,11 @@ def _presentation_semantic_unit(tokens: list[str]) -> str:
 
 
 def _presentation_scale(tokens: list[str]) -> dict:
+    up = "_".join(tokens)
+    m = re.search(r"(?:TIMING|TIME).*_(\d+)(MS|MSEC|S|SEC)(?:_|$)", up)
+    if m and int(m.group(1)) > 0:
+        factor = int(m.group(1))
+        return {"scale_kind": "linear", "formula": "x" if factor == 1 else f"x * {factor}"}
     for i, t in enumerate(tokens[:-1]):
         if t == "FCTR" and tokens[i + 1].isdigit() and int(tokens[i + 1]) > 0:
             return {"scale_kind": "linear", "formula": f"x / {int(tokens[i + 1])}"}

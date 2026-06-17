@@ -128,6 +128,13 @@ def test_presentation_meta_from_qualifier_name():
     assert fctr["unit"] == ""
     assert fctr["scale_kind"] == "linear"
     assert fctr["formula"] == "x / 256"
+    timing = presentation_meta("PRES_Timing_Res_10ms")
+    assert timing["unit"] == "ms"
+    assert timing["formula"] == "x * 10"
+    assert presentation_meta("PRES_Timing_Aufloesung_1ms")["formula"] == "x"
+    dc_time = presentation_meta("PRES_LINEAR_DC_TIME_5S")
+    assert dc_time["unit"] == "s"
+    assert dc_time["formula"] == "x * 5"
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
