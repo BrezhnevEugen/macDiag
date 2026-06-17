@@ -926,3 +926,26 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
         bytes.fromhex("620123000AFF"),
         {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
     ) == 0x000AFF
+
+
+def test_raw_value_uses_real_byte_width_not_constant_bit_len():
+    """The CBF layout bit_len is a constant 0x10; the read width must come from
+    the presentation byte_len, not from bit_len, or 1- and 4-byte fields are
+    misread as 2-byte values."""
+    from backend.mb import measurements
+
+    req = bytes.fromhex("220123")
+    # 1-byte field at byte offset 3: must read only 0x08, not 0x08FF.
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("62012308FF"),
+        {"output_raw_type": "ubyte", "output_byte_len": 1,
+         "output_bit_pos": 24, "output_bit_len": 16},
+    ) == 0x08
+    # 4-byte field at byte offset 3: must read all four bytes, not just two.
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123000A0001"),
+        {"output_raw_type": "ulong", "output_byte_len": 4,
+         "output_bit_pos": 24, "output_bit_len": 16},
+    ) == 0x000A0001

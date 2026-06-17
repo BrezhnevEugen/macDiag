@@ -1157,14 +1157,16 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
 
 
 def _layout_payload_bit_len(svc: dict | None, bit_len: int) -> int:
-    raw_type = ((svc or {}).get("output_raw_type") or "").lower()
-    if raw_type in {"ascii", "bytes", "hexdump"}:
-        try:
-            byte_len = int((svc or {}).get("output_byte_len") or 0)
-        except (TypeError, ValueError):
-            byte_len = 0
-        if byte_len > 0:
-            return byte_len * 8
+    # The CBF output-field layout record does not store a usable field width
+    # (the dword we once read as bit_len is a constant 0x10), so the real width
+    # comes from the presentation-derived byte_len. Fall back to bit_len only
+    # when the width is unknown, preserving the historical 2-byte default.
+    try:
+        byte_len = int((svc or {}).get("output_byte_len") or 0)
+    except (TypeError, ValueError):
+        byte_len = 0
+    if byte_len > 0:
+        return byte_len * 8
     return bit_len
 
 
