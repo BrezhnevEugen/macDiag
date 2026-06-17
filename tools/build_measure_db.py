@@ -354,6 +354,14 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
             raw_type, byte_len, unit, scale_kind, formula,
             byte_order, signed, pool_meta)
         meta_source = "presentation_pool"
+        # bit_len now carries the authoritative field width in bits (the old
+        # layout bit_len was a constant); this lets sub-byte fields decode.
+        if pool_meta.get("width_bits"):
+            bit_len = pool_meta["width_bits"]
+            # A sub-byte field has no byte width; keep the width in bit_len so
+            # the backend bit-extracts instead of mis-slicing whole bytes.
+            if bit_len % 8:
+                byte_len = 0
     if meta_source:
         source += "+" + meta_source
     conn.execute(
@@ -592,7 +600,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
     conn = sqlite3.connect(tmp)
     try:
         conn.executescript(SCHEMA)
-        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "16"))
+        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "17"))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("built_at", str(time.time())))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("vsg_dir", str(vsg_dir)))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("mwg_dir", str(mwg_dir)))

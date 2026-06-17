@@ -1155,16 +1155,21 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
     bit_width = _layout_bit_width(svc)
     if bit_width:
         return _extract_bits(resp, bit_pos, bit_width)
-    bit_len = _layout_payload_bit_len(svc, bit_len)
-    if bit_pos % 8:
+    width = _layout_payload_bit_len(svc, bit_len)
+    if width <= 0:
         return None
-    if bit_len % 8:
-        return None
-    start = bit_pos // 8
-    end = start + (bit_len // 8)
-    if end > len(resp):
-        return b""
-    return resp[start:end]
+    if bit_pos % 8 == 0 and width % 8 == 0:
+        start = bit_pos // 8
+        end = start + (width // 8)
+        if end > len(resp):
+            return b""
+        return resp[start:end]
+    # True sub-byte field (flag/nibble/small enum): extract exactly `width` bits.
+    # A wider non-byte-aligned field cannot be read without scrambling a
+    # multi-byte value, so report nothing rather than a wrong number.
+    if width <= 8:
+        return _extract_bits(resp, bit_pos, width)
+    return None
 
 
 def _layout_payload_bit_len(svc: dict | None, bit_len: int) -> int:
@@ -1192,7 +1197,7 @@ def _layout_bit_width(svc: dict) -> int:
 
 
 def _extract_bits(data: bytes, bit_pos: int, bit_width: int) -> bytes:
-    if bit_width <= 0 or bit_width > 8:
+    if bit_width <= 0 or bit_width > 32:
         return b""
     value = 0
     for i in range(bit_width):
@@ -1201,7 +1206,7 @@ def _extract_bits(data: bytes, bit_pos: int, bit_width: int) -> bytes:
         if byte_index >= len(data):
             return b""
         value |= ((data[byte_index] >> (absolute_bit % 8)) & 1) << i
-    return bytes([value])
+    return value.to_bytes((bit_width + 7) // 8, "big")
 
 
 def _is_single_bit_output(svc: dict) -> bool:
@@ -1237,6 +1242,11 @@ def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):
     """Interpret a positive response, using CBF output layout when available."""
     data = _layout_data(resp, svc)
     if data is None:
+        # When the field has a layout we just could not read (unknown width or a
+        # non-byte-aligned multi-byte field), report nothing rather than slicing
+        # arbitrary tail bytes. Only fall back when there is no layout at all.
+        if svc and svc.get("output_bit_pos") is not None:
+            return None
         n = 3 if req and req[0] == 0x22 else 2 if req and req[0] == 0x21 else 1
         data = resp[n:] if len(resp) > n else b""
     if not data:

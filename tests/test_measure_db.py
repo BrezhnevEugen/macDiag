@@ -141,7 +141,7 @@ def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
         translation_count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0]
-    assert schema_version == "16"
+    assert schema_version == "17"
     assert translation_count == 3
 
     from backend.mb import measurements
@@ -891,6 +891,8 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
             "output_bit_len": 16,
         },
     ) == 1
+    # A multi-value enum with no matching value map returns the raw integer; a
+    # byte-aligned 1-byte field reads the whole byte (0x08).
     assert measurements._raw_value(
         req,
         bytes.fromhex("62012308"),
@@ -898,8 +900,8 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
             "output_presentation": "PRES_DOP_PRESENTATION_Pending_Undefiniert_Ok_Fault",
             "output_raw_type": "ubyte",
             "output_scale_kind": "enum",
-            "output_bit_pos": 27,
-            "output_bit_len": 16,
+            "output_bit_pos": 24,
+            "output_bit_len": 8,
         },
     ) == 8
     assert measurements._raw_value(
@@ -924,11 +926,13 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
             "output_bit_len": 16,
         },
     ) == 0x0A
+    # A 16-bit field at a non-byte-aligned bit position cannot be read without
+    # scrambling the word, so it is reported as unreadable rather than guessed.
     assert measurements._raw_value(
         req,
         bytes.fromhex("620123000AFF"),
         {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
-    ) == 0x000AFF
+    ) is None
 
 
 def test_raw_value_uses_real_byte_width_not_constant_bit_len():
@@ -980,6 +984,33 @@ def test_raw_value_decodes_signed_types():
         {"output_raw_type": "uword", "output_byte_len": 2,
          "output_bit_pos": 24, "output_bit_len": 16},
     ) == 0xFFC0
+
+
+def test_raw_value_extracts_sub_byte_fields():
+    """bit_len carries the authoritative width; sub-byte fields extract by bits,
+    and wide non-byte-aligned fields are unreadable (not guessed)."""
+    from backend.mb import measurements
+
+    req = bytes.fromhex("220123")
+    resp = bytes.fromhex("620123A5")  # data byte 0xA5 = 1010_0101
+    # 1-bit flag at bit offset 3 of byte 3: (0xA5 >> 3) & 1 == 0.
+    assert measurements._raw_value(
+        req, resp,
+        {"output_raw_type": "ubyte", "output_byte_len": 0,
+         "output_bit_pos": 27, "output_bit_len": 1},
+    ) == 0
+    # 4-bit field at the byte boundary: low nibble of 0xA5 == 0x5.
+    assert measurements._raw_value(
+        req, resp,
+        {"output_raw_type": "ubyte", "output_byte_len": 0,
+         "output_bit_pos": 24, "output_bit_len": 4},
+    ) == 0x5
+    # 16-bit field at a non-byte-aligned position is unreadable.
+    assert measurements._raw_value(
+        req, resp,
+        {"output_raw_type": "uword", "output_byte_len": 0,
+         "output_bit_pos": 25, "output_bit_len": 16},
+    ) is None
 
 
 def test_raw_value_honors_byte_order_from_db():
