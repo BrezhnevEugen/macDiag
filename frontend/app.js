@@ -756,26 +756,54 @@ async function refreshMeas(path) {
       ? `${t("ошибка чтения")}${sid}`
       : `${t("запрос заблокирован")}${sid}`;
   };
+  // Load-collective blocks (PRES_BLK*) are exposed as one DiagService per cell
+  // (job `<prefix>_COL_<n>`). Stitch the cells of one block into a single strip
+  // instead of scattering dozens of gauges across the dashboard.
+  const COL = /^(.+)_COL_(\d+)$/;
+  const blocks = {};
   r.values.forEach((p) => {
-    let el = document.getElementById("m_" + p.job);
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "gauge"; el.id = "m_" + p.job;
-      el.title = p.job + (p.note ? "\n(" + p.note + ")" : "");
-      el.innerHTML = `<div class="label"></div><div class="vrow"><span class="value"></span><span class="unit"></span></div><div class="sub muted"></div>`;
-      g.appendChild(el);
-    }
-    el.querySelector(".label").textContent = p.label;
-    el.querySelector(".value").textContent = p.value;
-    el.querySelector(".unit").textContent = " " + (p.unit || "");
-    // reference range (norm) for comparison — only for numeric params with a unit
-    const ref = (p.unit && p.low != null && p.high != null && p.high !== p.low)
-      ? `${t("норма")} ${p.low}–${p.high} ${p.unit}` : "";
-    const status = readNote(p);
-    el.querySelector(".sub").textContent = [ref, status].filter(Boolean).join(" · ");
-    el.title = p.job + (p.note ? "\n(" + p.note + ")" : "") +
-      (p.read_reason ? "\n" + p.read_reason : "");
+    const m = COL.exec(p.job);
+    if (!m) { renderGauge(g, p, readNote); return; }
+    const b = blocks[m[1]] || (blocks[m[1]] = { unit: p.unit || "", cells: [] });
+    b.cells.push({ i: Number(m[2]), value: p.value, job: p.job });
   });
+  Object.keys(blocks).forEach((key) => renderBlock(g, key, blocks[key]));
+}
+
+function renderGauge(g, p, readNote) {
+  let el = document.getElementById("m_" + p.job);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "gauge"; el.id = "m_" + p.job;
+    el.innerHTML = `<div class="label"></div><div class="vrow"><span class="value"></span><span class="unit"></span></div><div class="sub muted"></div>`;
+    g.appendChild(el);
+  }
+  el.querySelector(".label").textContent = p.label;
+  el.querySelector(".value").textContent = p.value;
+  el.querySelector(".unit").textContent = " " + (p.unit || "");
+  // reference range (norm) for comparison — only for numeric params with a unit
+  const ref = (p.unit && p.low != null && p.high != null && p.high !== p.low)
+    ? `${t("норма")} ${p.low}–${p.high} ${p.unit}` : "";
+  const status = readNote(p);
+  el.querySelector(".sub").textContent = [ref, status].filter(Boolean).join(" · ");
+  el.title = p.job + (p.note ? "\n(" + p.note + ")" : "") +
+    (p.read_reason ? "\n" + p.read_reason : "");
+}
+
+function renderBlock(g, key, b) {
+  b.cells.sort((a, c) => a.i - c.i);
+  let el = document.getElementById("blk_" + key);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "block"; el.id = "blk_" + key;
+    g.appendChild(el);
+  }
+  const title = key.replace(/^DT_(BLK3S|BLK)_/, "").replace(/_/g, " ");
+  el.innerHTML =
+    `<div class="blabel">${esc(title)} <span class="muted">${b.unit ? esc(b.unit) + " · " : ""}${b.cells.length}</span></div>` +
+    `<div class="bstrip">` + b.cells.map((cl) =>
+      `<span class="bcell" title="COL ${cl.i} · ${esc(cl.job)}">${esc(cl.value)}</span>`).join("") +
+    `</div>`;
 }
 $("#measAuto").onclick = () => {
   if (measTimer) { clearInterval(measTimer); measTimer = null; $("#measAuto").textContent = t("▶ Авто"); return; }

@@ -119,6 +119,12 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
 .gauge .value { font-size: 24px; font-weight: 500; }
 .gauge .unit { font-size: 13px; color: var(--muted); margin-left: 2px; }
 .gauge .sub { font-size: 10px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* load-collective block: one wide strip of per-column cells */
+.block { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.block .blabel { font-size: 12px; color: var(--txt); margin-bottom: 6px; }
+.block .bstrip { display: flex; flex-wrap: wrap; gap: 4px; }
+.block .bcell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; min-width: 30px; text-align: right; }
 .coverage {
   display: flex;
   align-items: center;
