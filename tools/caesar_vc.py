@@ -228,6 +228,19 @@ def _presentation_semantic_unit(tokens: list[str]) -> str:
         return "mg/stroke"
     if token_set & {"INJMASS", "KRAFTSTOFFMENGE", "RATFUELMASS"}:
         return "mg"
+    if token_set & {"DAY"}:
+        return "day"
+    if token_set & {"MONTH"}:
+        return "month"
+    if "COL_FORMAT" not in up:
+        if token_set & {"KELV"}:
+            return "K"
+        if any("TEMP" in t or "TEMPERATUR" in t or "TEMPERATURE" in t for t in token_set):
+            return "deg C"
+        if re.search(r"(STROM|CURRENT|CURR).*0[_P]?1M?A", up):
+            return "mA"
+        if token_set & {"STROM", "CURRENT", "CURR"}:
+            return "A"
     return ""
 
 
@@ -237,6 +250,8 @@ def _presentation_scale(tokens: list[str]) -> dict:
     if m and int(m.group(1)) > 0:
         factor = int(m.group(1))
         return {"scale_kind": "linear", "formula": "x" if factor == 1 else f"x * {factor}"}
+    if re.search(r"(STROM|CURRENT|CURR).*0[_P]?1M?A", up):
+        return {"scale_kind": "linear", "formula": "x * 0.1"}
     for i, t in enumerate(tokens[:-1]):
         if t == "FCTR" and tokens[i + 1].isdigit() and int(tokens[i + 1]) > 0:
             return {"scale_kind": "linear", "formula": f"x / {int(tokens[i + 1])}"}

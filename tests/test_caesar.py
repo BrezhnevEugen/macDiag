@@ -139,6 +139,14 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_Kraftstoffmenge_M")["unit"] == "mg"
     assert presentation_meta("PRES_AirMassPerCyl")["unit"] == "mg/stroke"
     assert presentation_meta("PRES_Luftmasse")["unit"] == "mg/stroke"
+    assert presentation_meta("PRES_Day")["unit"] == "day"
+    assert presentation_meta("PRES_Month")["unit"] == "month"
+    assert presentation_meta("PRES_Temperatur")["unit"] == "deg C"
+    assert presentation_meta("PRES_TempDiff_Kelv")["unit"] == "K"
+    strom = presentation_meta("PRES_Strom_0p1mA")
+    assert strom["unit"] == "mA"
+    assert strom["formula"] == "x * 0.1"
+    assert presentation_meta("PRES_BLKBAT_Temp_Curr_COL_format_1")["unit"] == ""
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
