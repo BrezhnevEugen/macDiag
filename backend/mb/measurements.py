@@ -1141,13 +1141,11 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
         return None
     if bit_pos < 0 or bit_len <= 0:
         return None
+    bit_width = _layout_bit_width(svc)
+    if bit_width:
+        return _extract_bits(resp, bit_pos, bit_width)
     if bit_pos % 8:
-        if not _is_single_bit_output(svc):
-            return None
-        byte_index = bit_pos // 8
-        if byte_index >= len(resp):
-            return b""
-        return bytes([(resp[byte_index] >> (bit_pos % 8)) & 1])
+        return None
     if bit_len % 8:
         return None
     start = bit_pos // 8
@@ -1155,6 +1153,29 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
     if end > len(resp):
         return b""
     return resp[start:end]
+
+
+def _layout_bit_width(svc: dict) -> int:
+    if _is_single_bit_output(svc):
+        return 1
+    scale_kind = (svc.get("output_scale_kind") or "").lower()
+    presentation = (svc.get("output_presentation") or "").upper()
+    if scale_kind == "bitfield" and ("4BIT" in presentation or "NIBBLE" in presentation):
+        return 4
+    return 0
+
+
+def _extract_bits(data: bytes, bit_pos: int, bit_width: int) -> bytes:
+    if bit_width <= 0 or bit_width > 8:
+        return b""
+    value = 0
+    for i in range(bit_width):
+        absolute_bit = bit_pos + i
+        byte_index = absolute_bit // 8
+        if byte_index >= len(data):
+            return b""
+        value |= ((data[byte_index] >> (absolute_bit % 8)) & 1) << i
+    return bytes([value])
 
 
 def _is_single_bit_output(svc: dict) -> bool:

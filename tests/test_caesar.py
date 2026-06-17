@@ -83,6 +83,9 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_nein_ja_1Bit")["formula"] == "x != 0"
     assert presentation_meta("PRES_Bit_ja")["raw_type"] == "bool"
     assert presentation_meta("PRES_Bit_ja")["formula"] == "x != 0"
+    nibble = presentation_meta("PRES_Low_Nibble")
+    assert nibble["raw_type"] == "ubyte"
+    assert nibble["scale_kind"] == "bitfield"
     yes_no = presentation_meta("PRES_DOP_PRESENTATION_Nein_Ja")
     assert yes_no["raw_type"] == "ubyte"
     assert yes_no["scale_kind"] == "enum"

@@ -350,6 +350,10 @@ def presentation_meta(name: str) -> dict:
         byte_len = 1
         scale = {"scale_kind": "boolean",
                  "formula": "x == 0" if "INVERT" in up else "x != 0"}
+    elif "NIBBLE" in up:
+        raw_type = "ubyte"
+        byte_len = 1
+        scale = {"scale_kind": "bitfield", "formula": ""}
     elif re.search(r"(^|_)BIT[_\s]*(JA|YES|TRUE|NEIN|NO|FALSE|AKTIV|ACTIVE)(?:_|$)", up):
         raw_type = "bool"
         byte_len = 1

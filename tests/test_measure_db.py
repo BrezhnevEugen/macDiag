@@ -891,6 +891,28 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
     ) == 8
     assert measurements._raw_value(
         req,
+        bytes.fromhex("6201230A"),
+        {
+            "output_presentation": "PRES_Low_Nibble",
+            "output_raw_type": "ubyte",
+            "output_scale_kind": "bitfield",
+            "output_bit_pos": 24,
+            "output_bit_len": 16,
+        },
+    ) == 0x0A
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123A0"),
+        {
+            "output_presentation": "PRES_Unsigned_4Bit",
+            "output_raw_type": "ubyte",
+            "output_scale_kind": "bitfield",
+            "output_bit_pos": 28,
+            "output_bit_len": 16,
+        },
+    ) == 0x0A
+    assert measurements._raw_value(
+        req,
         bytes.fromhex("620123000AFF"),
         {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
     ) == 0x000AFF
