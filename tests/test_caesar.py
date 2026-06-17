@@ -227,3 +227,24 @@ def test_diag_catalog_extracts_enum_value_map():
         {"low": 0, "high": 0, "label": "Nein"},
         {"low": 1, "high": 1, "label": "Ja"},
     ]
+
+
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_diag_catalog_extracts_output_bit_layout():
+    from caesar_vc import diag_catalog
+
+    cat = diag_catalog(CEPC_MFA)
+    battery = cat["DT_Batteriespannung"]
+    assert battery["presentation"] == "PRES_IN_Battery_voltage"
+    assert battery["presentation_bit_pos"] == 0x18
+    assert battery["presentation_bit_len"] == 0x10
+    assert battery["presentation_byte_offset"] == 3
+    assert battery["presentation_bit_offset"] == 0
+
+    col0 = cat["DT_BLK_EngSpd_GearState_COL_0"]
+    col1 = cat["DT_BLK_EngSpd_GearState_COL_1"]
+    assert col0["presentation"] == "PRES_BLK_EngSpd_GearState_COL_format"
+    assert col0["presentation_bit_pos"] == 0x448
+    assert col0["presentation_bit_len"] == 0x10
+    assert col0["presentation_byte_offset"] == 137
+    assert col1["presentation_bit_pos"] == 0x468

@@ -29,12 +29,16 @@ def test_insert_service_output_preserves_explicit_empty_formula():
                     {"low": 0, "high": 0, "label": "Ja"},
                     {"low": 1, "high": 1, "label": "Nein"},
                 ],
-                "presentation_meta_source": "cbf_presentation_enum_record",
+                "presentation_bit_pos": 24,
+                "presentation_bit_len": 1,
+                "presentation_byte_offset": 3,
+                "presentation_bit_offset": 0,
             },
         )
         row = conn.execute(
             """
-            SELECT raw_type, byte_len, scale_kind, formula, value_map_json, source
+            SELECT raw_type, byte_len, scale_kind, formula, value_map_json,
+                   bit_pos, bit_len, byte_offset, bit_offset, source
             FROM service_outputs
             """
         ).fetchone()
@@ -46,6 +50,10 @@ def test_insert_service_output_preserves_explicit_empty_formula():
         "enum",
         "",
         '[{"low": 0, "high": 0, "label": "Ja"}, {"low": 1, "high": 1, "label": "Nein"}]',
+        24,
+        1,
+        3,
+        0,
         "cbf_diag_inline+cbf_presentation_enum_record",
     )
 
@@ -75,7 +83,7 @@ def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
         translation_count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0]
-    assert schema_version == "14"
+    assert schema_version == "15"
     assert translation_count == 3
 
     from backend.mb import measurements
@@ -385,6 +393,10 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
                     {"low": 0, "high": 0, "label": "Nein"},
                     {"low": 1, "high": 1, "label": "Ja"},
                 ],
+                "presentation_bit_pos": 24,
+                "presentation_bit_len": 8,
+                "presentation_byte_offset": 3,
+                "presentation_bit_offset": 0,
             },
             "DT_604B_P_T_Dpf_load_percent_wgh": {
                 "request": "2105",
@@ -395,6 +407,10 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
                 "presentation": "PRES_CM_0184_BIN7_BAR_UWORD",
                 "presentation_raw_type": "uword",
                 "presentation_byte_len": 2,
+                "presentation_bit_pos": 16,
+                "presentation_bit_len": 16,
+                "presentation_byte_offset": 2,
+                "presentation_bit_offset": 0,
             },
         }
 
@@ -446,7 +462,8 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
         outputs = db.execute(
             """
             SELECT qualifier, presentation, raw_type, byte_len, unit, scale_kind,
-                   formula, value_map_json, source
+                   formula, value_map_json, bit_pos, bit_len, byte_offset, bit_offset,
+                   source
             FROM service_outputs ORDER BY qualifier
             """
         ).fetchall()
@@ -462,9 +479,11 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
         ("DT_6043_P_T_Dpf_soot_mass", "PRES_DOP_PRESENTATION_Nein_Ja",
          "ubyte", 1, "", "enum", "",
          '[{"low": 0, "high": 0, "label": "Nein"}, {"low": 1, "high": 1, "label": "Ja"}]',
+         24, 8, 3, 0,
          "cbf_diag_inline+cbf_presentation_enum_record"),
         ("DT_604B_P_T_Dpf_load_percent_wgh", "PRES_CM_0184_BIN7_BAR_UWORD",
          "uword", 2, "bar", "binary", "x / 128", "",
+         16, 16, 2, 0,
          "cbf_diag_inline+presentation_name"),
     ]
 
@@ -493,6 +512,10 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
     assert group["services"][0]["output_presentation"] == "PRES_DOP_PRESENTATION_Nein_Ja"
     assert group["services"][0]["output_raw_type"] == "ubyte"
     assert group["services"][0]["output_byte_len"] == 1
+    assert group["services"][0]["output_bit_pos"] == 24
+    assert group["services"][0]["output_bit_len"] == 8
+    assert group["services"][0]["output_byte_offset"] == 3
+    assert group["services"][0]["output_bit_offset"] == 0
     assert group["services"][0]["output_value_map"] == [
         {"low": 0, "high": 0, "label": "Nein"},
         {"low": 1, "high": 1, "label": "Ja"},
@@ -509,8 +532,8 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
         def raw_request(self, payload: bytes) -> bytes:
             self.requests.append(payload.hex().upper())
             if payload == bytes.fromhex("220123"):
-                return bytes.fromhex("620123000A")
-            return bytes.fromhex("610507")
+                return bytes.fromhex("62012301")
+            return bytes.fromhex("61050007")
 
     def no_cbf_parse(ecu: str) -> dict:
         raise AssertionError(f"CBF fallback should not be used for {ecu}")
@@ -519,7 +542,8 @@ def test_measure_db_maps_cbf_diag_services(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(measurements, "_diag_cat", no_cbf_parse)
     values = measurements.read_values(path, lang="ru", hw=True, client=client)
     assert client.requests == ["220123", "2105"]
-    assert [v["value"] for v in values] == [10, 0.0547]
+    assert [v["value"] for v in values] == ["Ja", 0.0547]
+    assert values[0]["value_source"] == "enum"
     assert values[1]["unit"] == "bar"
     assert values[1]["value_source"] == "scaled"
 
@@ -762,3 +786,20 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
     assert measurements._raw_value(
         req, bytes.fromhex("62012341424300"), {"output_raw_type": "ascii"}
     ) == "ABC"
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123000AFF"),
+        {"output_raw_type": "uword", "output_bit_pos": 24, "output_bit_len": 16},
+    ) == 10
+
+    shared_resp = bytes.fromhex("620105") + (b"\x00" * 134) + bytes.fromhex("1234FF")
+    assert measurements._raw_value(
+        bytes.fromhex("220105"),
+        shared_resp,
+        {"output_raw_type": "block", "output_bit_pos": 0x448, "output_bit_len": 16},
+    ) == "1234"
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123000AFF"),
+        {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
+    ) == 0x000AFF

@@ -908,25 +908,41 @@ def _db_group(path: str) -> dict | None:
             has_output_value_maps = (
                 has_outputs and _table_has_column(db, "service_outputs", "value_map_json")
             )
+            has_output_layout = (
+                has_outputs and _table_has_column(db, "service_outputs", "bit_pos")
+            )
             output_join = """
                     LEFT JOIN service_outputs AS o
                       ON o.ecu = d.ecu
                      AND o.qualifier = d.qualifier
             """ if has_outputs else ""
-            output_value_map_expr = (
-                "o.value_map_json" if has_output_value_maps else "''"
-            )
-            output_cols = (
-                "o.presentation AS output_presentation, o.raw_type AS output_raw_type, "
-                "o.byte_len AS output_byte_len, o.unit AS output_unit, "
-                "o.scale_kind AS output_scale_kind, o.formula AS output_formula, "
-                f"{output_value_map_expr} AS output_value_map_json"
-                if has_outputs else
-                "NULL AS output_presentation, NULL AS output_raw_type, "
-                "NULL AS output_byte_len, NULL AS output_unit, "
-                "NULL AS output_scale_kind, NULL AS output_formula, "
-                "NULL AS output_value_map_json"
-            )
+            if has_outputs:
+                output_value_map_expr = (
+                    "o.value_map_json" if has_output_value_maps else "''"
+                )
+                output_layout_cols = (
+                    "o.bit_pos AS output_bit_pos, o.bit_len AS output_bit_len, "
+                    "o.byte_offset AS output_byte_offset, o.bit_offset AS output_bit_offset"
+                    if has_output_layout else
+                    "NULL AS output_bit_pos, NULL AS output_bit_len, "
+                    "NULL AS output_byte_offset, NULL AS output_bit_offset"
+                )
+                output_cols = (
+                    "o.presentation AS output_presentation, o.raw_type AS output_raw_type, "
+                    "o.byte_len AS output_byte_len, o.unit AS output_unit, "
+                    "o.scale_kind AS output_scale_kind, o.formula AS output_formula, "
+                    f"{output_value_map_expr} AS output_value_map_json, "
+                    f"{output_layout_cols}"
+                )
+            else:
+                output_cols = (
+                    "NULL AS output_presentation, NULL AS output_raw_type, "
+                    "NULL AS output_byte_len, NULL AS output_unit, "
+                    "NULL AS output_scale_kind, NULL AS output_formula, "
+                    "NULL AS output_value_map_json, NULL AS output_bit_pos, "
+                    "NULL AS output_bit_len, NULL AS output_byte_offset, "
+                    "NULL AS output_bit_offset"
+                )
             if has_diag and has_matches:
                 rows = db.execute(
                     f"""
@@ -1032,6 +1048,13 @@ def _db_group(path: str) -> dict | None:
                                 else "scaled" if s["output_scale_kind"] else "raw"
                             ),
                         })
+                        if s["output_bit_pos"] is not None:
+                            item.update({
+                                "output_bit_pos": s["output_bit_pos"],
+                                "output_bit_len": s["output_bit_len"],
+                                "output_byte_offset": s["output_byte_offset"],
+                                "output_bit_offset": s["output_bit_offset"],
+                            })
                 services.append(item)
             g = dict(gr)
             g["services"] = services
@@ -1104,10 +1127,35 @@ def _bcd_value(data: bytes):
     return int(s or "0")
 
 
+def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
+    if not svc:
+        return None
+    bit_pos = svc.get("output_bit_pos")
+    bit_len = svc.get("output_bit_len")
+    if bit_pos is None or bit_len is None:
+        return None
+    try:
+        bit_pos = int(bit_pos)
+        bit_len = int(bit_len)
+    except (TypeError, ValueError):
+        return None
+    if bit_pos < 0 or bit_len <= 0:
+        return None
+    if bit_pos % 8 or bit_len % 8:
+        return None
+    start = bit_pos // 8
+    end = start + (bit_len // 8)
+    if end > len(resp):
+        return b""
+    return resp[start:end]
+
+
 def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):
-    """Strip the positive-response echo, interpret the remaining bytes."""
-    n = 3 if req and req[0] == 0x22 else 2 if req and req[0] == 0x21 else 1
-    data = resp[n:] if len(resp) > n else b""
+    """Interpret a positive response, using CBF output layout when available."""
+    data = _layout_data(resp, svc)
+    if data is None:
+        n = 3 if req and req[0] == 0x22 else 2 if req and req[0] == 0x21 else 1
+        data = resp[n:] if len(resp) > n else b""
     if not data:
         return None
     raw_type = (svc or {}).get("output_raw_type") or ""

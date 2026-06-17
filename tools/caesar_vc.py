@@ -542,24 +542,68 @@ def _parse_diag_header(r: Reader, base: int) -> dict:
     # after the header. Implausible count/offset means this entry's bitflags
     # drifted — discard the garbage rather than emit a bogus request.
     flen = len(r.data) if hasattr(r, "data") else (1 << 30)
+    req_abs = 0
     if 0 < req_count <= 0x20 and 0 <= req_off and (base + req_off + req_count) <= flen:
         try:
+            req_abs = base + req_off
             r.seek(base + req_off)
             req = r.bytes(req_count)
         except Exception:  # noqa: BLE001
             req = b""
+            req_abs = 0
     return {"qualifier": qualifier, "request": req, "sec_level": sec_level,
-            "svc_type": svc_type, "name_ctf": name_ctf, "desc_ctf": desc_ctf}
+            "svc_type": svc_type, "name_ctf": name_ctf, "desc_ctf": desc_ctf,
+            "request_abs": req_abs}
+
+
+def _diag_output_layout(data: bytes, base: int, end: int,
+                        request_abs: int, request_len: int) -> dict:
+    """Extract the inline Caesar output field layout next to request bytes."""
+    if not request_abs or request_len <= 0:
+        return {}
+    limit = min(max(base, end), len(data))
+    if request_abs < base or request_abs + request_len > limit:
+        return {}
+    field_start = request_abs + request_len
+    if field_start & 1:
+        field_start += 1
+    if field_start + 34 > limit:
+        return {}
+    try:
+        entry_count = struct.unpack_from("<I", data, field_start)[0]
+        kind_a = struct.unpack_from("<I", data, field_start + 4)[0]
+        kind_b = struct.unpack_from("<I", data, field_start + 8)[0]
+        bit_pos = struct.unpack_from("<I", data, field_start + 12)[0]
+        marker = struct.unpack_from("<I", data, field_start + 16)[0]
+        marker_ext = struct.unpack_from("<H", data, field_start + 20)[0]
+        bit_len = struct.unpack_from("<I", data, field_start + 22)[0]
+    except struct.error:
+        return {}
+    if (entry_count, kind_a, kind_b, marker, marker_ext) != (1, 8, 10, 0x00832750, 0):
+        return {}
+    if not (0 <= bit_pos < 0x200000 and 0 < bit_len <= 0x200000):
+        return {}
+    return {"presentation_bit_pos": bit_pos,
+            "presentation_bit_len": bit_len,
+            "presentation_byte_offset": bit_pos // 8,
+            "presentation_bit_offset": bit_pos % 8}
 
 
 def _presentation_near(r: Reader, base: int, end: int,
-                       records: dict[str, dict] | None = None) -> dict:
+                       records: dict[str, dict] | None = None,
+                       header: dict | None = None) -> dict:
     """Find the first inline PRES_* qualifier inside a DiagService block."""
     limit = min(max(base, end), base + 1024, len(r.d))
     chunk = r.d[base:limit]
+    layout = _diag_output_layout(
+        r.d, base, end,
+        (header or {}).get("request_abs") or 0,
+        len((header or {}).get("request") or b""),
+    )
     m = PRESENTATION_RE.search(chunk)
     if not m:
-        return {"presentation": "", "presentation_raw_type": "", "presentation_byte_len": 0}
+        return {"presentation": "", "presentation_raw_type": "", "presentation_byte_len": 0,
+                **layout}
     name = m.group(0)[:-1].decode("latin-1", "replace")
     meta = presentation_meta(name)
     source = "presentation_name" if (meta.get("unit") or meta.get("formula")) else ""
@@ -581,7 +625,8 @@ def _presentation_near(r: Reader, base: int, end: int,
             "presentation_scale_kind": meta["scale_kind"],
             "presentation_formula": meta["formula"],
             "presentation_value_map": meta.get("value_map") or [],
-            "presentation_meta_source": source}
+            "presentation_meta_source": source,
+            **layout}
 
 
 def diag_catalog(path: Path) -> dict:
@@ -615,7 +660,7 @@ def diag_catalog(path: Path) -> dict:
             if not q:
                 continue
             end = entries[j + 1] if j + 1 < len(entries) else min(len(r.d), base + 1024)
-            pres = _presentation_near(r, base, end, records)
+            pres = _presentation_near(r, base, end, records, h)
             desc = ctf(strings, h["desc_ctf"]) or ctf(strings, h["name_ctf"])
             out[q] = {"description": desc,
                       "name": ctf(strings, h["name_ctf"]),

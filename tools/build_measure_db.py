@@ -121,6 +121,10 @@ CREATE TABLE service_outputs (
   scale_kind TEXT NOT NULL DEFAULT '',
   formula TEXT NOT NULL DEFAULT '',
   value_map_json TEXT NOT NULL DEFAULT '',
+  bit_pos INTEGER,
+  bit_len INTEGER,
+  byte_offset INTEGER,
+  bit_offset INTEGER,
   source TEXT NOT NULL,
   PRIMARY KEY (ecu, qualifier)
 );
@@ -297,6 +301,10 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     )
     formula = info["presentation_formula"] if "presentation_formula" in info else meta["formula"]
     value_map = info.get("presentation_value_map") or meta.get("value_map") or []
+    bit_pos = info.get("presentation_bit_pos")
+    bit_len = info.get("presentation_bit_len")
+    byte_offset = info.get("presentation_byte_offset")
+    bit_offset = info.get("presentation_bit_offset")
     source = "cbf_diag_inline"
     meta_source = info.get("presentation_meta_source") or (
         "presentation_name" if (unit or formula) else ""
@@ -307,13 +315,13 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
         """
         INSERT OR IGNORE INTO service_outputs(
           ecu, qualifier, presentation, raw_type, byte_len, unit, scale_kind,
-          formula, value_map_json, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          formula, value_map_json, bit_pos, bit_len, byte_offset, bit_offset, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (_norm_ecu(ecu), qualifier, presentation, raw_type, byte_len,
          unit, scale_kind, formula,
          json.dumps(value_map, ensure_ascii=False) if value_map else "",
-         source),
+         bit_pos, bit_len, byte_offset, bit_offset, source),
     )
 
 
@@ -521,7 +529,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
     conn = sqlite3.connect(tmp)
     try:
         conn.executescript(SCHEMA)
-        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "14"))
+        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "15"))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("built_at", str(time.time())))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("vsg_dir", str(vsg_dir)))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("mwg_dir", str(mwg_dir)))
