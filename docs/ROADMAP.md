@@ -297,6 +297,37 @@
 - `PRES_BLK*` теперь намеренно остаются `raw_type=block`, `scale_kind=block`,
   пока не разобран настоящий DiagService response-field layout.
 
+Состояние после восьмого инкремента этапа 2:
+
+- `measurements.sqlite` schema v15. `service_outputs` получил колонки
+  `bit_pos`, `bit_len`, `byte_offset`, `bit_offset` — реальное положение
+  output-поля внутри ответа ЭБУ.
+- Новый `_diag_output_layout()` читает inline Caesar output-field layout сразу
+  за request bytes в блоке `DiagService` (`entry_count=1`, `kind 8/10`,
+  marker `0x00832750`) и достает `bit_pos/bit_len`. Сейчас offset проставлен у
+  188473 из 189343 `service_outputs` строк.
+- Layout-based raw type: для линейных presentations ширина поля берется из
+  layout (`prefer layout width`), одиночные single-bit CBF outputs декодируются
+  как bool.
+- Сильно расширены `presentation_meta()` и `_presentation_semantic_unit()`:
+  - byte-dump варианты (`HEX_DUMP_N`, `N BYTE DUMP`,
+    `IDENTICAL_HEX_DISPLAY_FOR_N_BYTES/BITS`, `IDENTICAL_BYTEFIELD_N_BYTES`),
+    nibble-поля, `IDENTICAL_UINT/INT_DEC/HEX_N_BYTES`;
+  - named single-bit enum (`Bit_Ja/Yes/True/Aktiv/...`), 1-bit bool, и common
+    enum-пары (`Nein/Ja`, `Aus/Ein`, `Off/On`, `False/True`, ...);
+  - семантические единицы по именам/немецким токенам: `count` (CNTR/CTR),
+    `Nm` (torque/Drehmoment), `%` (Tastverhaeltnis/duty), `rpm`, `bar`
+    (Rail/Druck), `V` (Volt/Spannung), `km` (Odometer/Kilometerstand),
+    `mg/stroke` (Airmass/Luftmasse), `mg` (Injmass/Kraftstoffmenge),
+    `day`/`month`, `K`/`deg C` (Temp/Kelv), `mA`/`A` (Strom/Current) с
+    формулами `x * 0.1`, timing `_Nms/_Ns`, `FCTR_N -> x / N`.
+- Глобально `service_outputs`: `raw_type` вырос со 157336 до 172098, `unit` с
+  38907 до 56680, `formula` 94749, `value_map` 11704.
+- Для `CRD3_DEV`: rawtype 1525, unit 619, formula 671 среди 1688 matched rows;
+  для `CEPC_MFA`: rawtype 508, unit 35, formula 134 среди 545 matched rows.
+- `PRES_BLK*` по-прежнему остаются `block`: теперь у них есть field offset, но
+  не разобран многострочный layout.
+
 Состояние после справочного CAN-инкремента:
 
 - `measurements.sqlite` schema v10 содержит таблицы `reference_links` и
@@ -327,8 +358,12 @@
 
 Следующий крупный шаг:
 
-- Продолжить этап 2: разобрать полноценный layout для `PRES_BLK*` таблиц
-  (`EngSpd/GearState`, `EngTrq/GearState`, fuel/travel/start counters), чтобы
-  многострочные блоки перестали быть просто hex.
+- Продолжить этап 2: разобрать полноценный многострочный layout для `PRES_BLK*`
+  таблиц (`EngSpd/GearState`, `EngTrq/GearState`, fuel/travel/start counters).
+  Single-field offset уже извлекается (`bit_pos/bit_len`), но для блоков нужно
+  распарсить набор полей и их presentations, чтобы они перестали быть просто hex.
+- Добить остаток кастомных application presentations (`PRES_Tsl...`,
+  `PRES_GLPS...`, `PRES_APP_DATASET_*`), которые не покрываются именными
+  эвристиками и compact-record'ами.
 - По справочному слою: пополнять `can_examples` проверенными фактами из W164/X164
   topology pages и привязать их к сценариям замены кластера/bench-проверки.
