@@ -141,7 +141,7 @@ def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()[0]
         translation_count = db.execute("SELECT COUNT(*) FROM translations").fetchone()[0]
-    assert schema_version == "15"
+    assert schema_version == "16"
     assert translation_count == 3
 
     from backend.mb import measurements
@@ -980,6 +980,26 @@ def test_raw_value_decodes_signed_types():
         {"output_raw_type": "uword", "output_byte_len": 2,
          "output_bit_pos": 24, "output_bit_len": 16},
     ) == 0xFFC0
+
+
+def test_raw_value_honors_byte_order_from_db():
+    """ByteOrder from the presentation pool drives endianness; default is big."""
+    from backend.mb import measurements
+
+    req = bytes.fromhex("220123")
+    base = {"output_raw_type": "uword", "output_byte_len": 2,
+            "output_bit_pos": 24, "output_bit_len": 16}
+    assert measurements._raw_value(
+        req, bytes.fromhex("6201231234"), {**base, "output_byte_order": "big"}
+    ) == 0x1234
+    assert measurements._raw_value(
+        req, bytes.fromhex("6201231234"), {**base, "output_byte_order": "little"}
+    ) == 0x3412
+    # output_signed from the DB overrides the raw_type guess.
+    assert measurements._raw_value(
+        req, bytes.fromhex("620123FFC0"),
+        {**base, "output_byte_order": "big", "output_signed": 1},
+    ) == -64
 
 
 def test_stride_consistency_scores_only_clean_groups():

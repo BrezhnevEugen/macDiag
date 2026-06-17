@@ -125,6 +125,8 @@ CREATE TABLE service_outputs (
   bit_len INTEGER,
   byte_offset INTEGER,
   bit_offset INTEGER,
+  byte_order TEXT NOT NULL DEFAULT 'big',
+  signed INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL,
   PRIMARY KEY (ecu, qualifier)
 );
@@ -260,7 +262,7 @@ def _diag_for_ecu(ecu: str, cbf_by_ecu: dict[str, Path],
 
 
 def _insert_diag_service(conn: sqlite3.Connection, ecu: str, qualifier: str,
-                         info: dict, cbf_file: Path) -> None:
+                         info: dict, cbf_file: Path, pres: dict | None = None) -> None:
     req_meta = _request_meta(info.get("request") or "")
     if not req_meta["request_hex"]:
         return
@@ -276,11 +278,42 @@ def _insert_diag_service(conn: sqlite3.Connection, ecu: str, qualifier: str,
          req_meta["identifier_hex"], info.get("sec_level"), info.get("svc_type"),
          info.get("name") or "", info.get("description") or "", str(cbf_file)),
     )
-    _insert_service_output(conn, ecu, qualifier, info)
+    _insert_service_output(conn, ecu, qualifier, info, pres)
+
+
+_INT_RAW_TYPES = {"", "ubyte", "uword", "ulong", "sbyte", "sword", "slong"}
+_SIGNED_RAW = {1: "sbyte", 2: "sword", 4: "slong"}
+_UNSIGNED_RAW = {1: "ubyte", 2: "uword", 4: "ulong"}
+
+
+def _apply_presentation_pool(raw_type, byte_len, unit, scale_kind, formula,
+                             byte_order, signed, pool_meta):
+    """Override heuristic output metadata with authoritative pool values.
+
+    Only width/sign/byte-order on plain integer fields are rewritten; enum,
+    bcd, block, ascii, bool and hexdump categories keep their decode. Unit and
+    a linear scale are taken from the pool when it provides them.
+    """
+    auth_bytes = int(pool_meta.get("byte_len") or 0)
+    if auth_bytes in (1, 2, 4) and raw_type in _INT_RAW_TYPES:
+        signed = bool(pool_meta.get("signed"))
+        byte_len = auth_bytes
+        raw_type = (_SIGNED_RAW if signed else _UNSIGNED_RAW)[auth_bytes]
+        byte_order = pool_meta.get("byte_order") or byte_order
+    if pool_meta.get("unit") and not unit:
+        unit = pool_meta["unit"]
+    scales = pool_meta.get("scales") or []
+    if scales and not formula:
+        f = scales[0].get("factor", 1.0)
+        o = scales[0].get("offset", 0.0)
+        pool_formula = caesar_vc._linear_formula(f, o)
+        if pool_formula:
+            formula, scale_kind = pool_formula, "linear"
+    return raw_type, byte_len, unit, scale_kind, formula, byte_order, signed
 
 
 def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
-                           info: dict) -> None:
+                           info: dict, pres: dict | None = None) -> None:
     presentation = info.get("presentation") or ""
     if not presentation:
         return
@@ -312,19 +345,30 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     meta_source = info.get("presentation_meta_source") or (
         "presentation_name" if (unit or formula) else ""
     )
+    byte_order = "big"
+    signed = raw_type in {"sbyte", "sword", "slong"}
+    pool_meta = (pres or {}).get(presentation)
+    if pool_meta:
+        (raw_type, byte_len, unit, scale_kind, formula,
+         byte_order, signed) = _apply_presentation_pool(
+            raw_type, byte_len, unit, scale_kind, formula,
+            byte_order, signed, pool_meta)
+        meta_source = "presentation_pool"
     if meta_source:
         source += "+" + meta_source
     conn.execute(
         """
         INSERT OR IGNORE INTO service_outputs(
           ecu, qualifier, presentation, raw_type, byte_len, unit, scale_kind,
-          formula, value_map_json, bit_pos, bit_len, byte_offset, bit_offset, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          formula, value_map_json, bit_pos, bit_len, byte_offset, bit_offset,
+          byte_order, signed, source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (_norm_ecu(ecu), qualifier, presentation, raw_type, byte_len,
          unit, scale_kind, formula,
          json.dumps(value_map, ensure_ascii=False) if value_map else "",
-         bit_pos, bit_len, byte_offset, bit_offset, source),
+         bit_pos, bit_len, byte_offset, bit_offset,
+         byte_order, 1 if signed else 0, source),
     )
 
 
@@ -342,8 +386,12 @@ def _raw_type_from_layout(bit_len) -> tuple[str, int]:
 
 def _insert_diag_catalog(conn: sqlite3.Connection, ecu: str, diag: dict,
                          cbf_file: Path) -> None:
+    try:
+        pres = caesar_vc.diag_presentations(cbf_file)
+    except Exception:  # noqa: BLE001
+        pres = {}
     for qualifier, info in diag.items():
-        _insert_diag_service(conn, ecu, qualifier, info, cbf_file)
+        _insert_diag_service(conn, ecu, qualifier, info, cbf_file, pres)
 
 
 def _diag_lookup(diag: dict) -> dict[str, tuple[str, dict]]:
@@ -544,7 +592,7 @@ def build(vsg_dir: Path, mwg_dir: Path, out: Path,
     conn = sqlite3.connect(tmp)
     try:
         conn.executescript(SCHEMA)
-        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "15"))
+        conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("schema_version", "16"))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("built_at", str(time.time())))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("vsg_dir", str(vsg_dir)))
         conn.execute("INSERT INTO meta(key, value) VALUES (?, ?)", ("mwg_dir", str(mwg_dir)))

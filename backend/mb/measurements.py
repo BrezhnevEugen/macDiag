@@ -911,6 +911,9 @@ def _db_group(path: str) -> dict | None:
             has_output_layout = (
                 has_outputs and _table_has_column(db, "service_outputs", "bit_pos")
             )
+            has_output_byteorder = (
+                has_outputs and _table_has_column(db, "service_outputs", "byte_order")
+            )
             output_join = """
                     LEFT JOIN service_outputs AS o
                       ON o.ecu = d.ecu
@@ -927,12 +930,17 @@ def _db_group(path: str) -> dict | None:
                     "NULL AS output_bit_pos, NULL AS output_bit_len, "
                     "NULL AS output_byte_offset, NULL AS output_bit_offset"
                 )
+                output_byteorder_cols = (
+                    "o.byte_order AS output_byte_order, o.signed AS output_signed"
+                    if has_output_byteorder else
+                    "'big' AS output_byte_order, NULL AS output_signed"
+                )
                 output_cols = (
                     "o.presentation AS output_presentation, o.raw_type AS output_raw_type, "
                     "o.byte_len AS output_byte_len, o.unit AS output_unit, "
                     "o.scale_kind AS output_scale_kind, o.formula AS output_formula, "
                     f"{output_value_map_expr} AS output_value_map_json, "
-                    f"{output_layout_cols}"
+                    f"{output_layout_cols}, {output_byteorder_cols}"
                 )
             else:
                 output_cols = (
@@ -941,7 +949,8 @@ def _db_group(path: str) -> dict | None:
                     "NULL AS output_scale_kind, NULL AS output_formula, "
                     "NULL AS output_value_map_json, NULL AS output_bit_pos, "
                     "NULL AS output_bit_len, NULL AS output_byte_offset, "
-                    "NULL AS output_bit_offset"
+                    "NULL AS output_bit_offset, 'big' AS output_byte_order, "
+                    "NULL AS output_signed"
                 )
             if has_diag and has_matches:
                 rows = db.execute(
@@ -1043,6 +1052,8 @@ def _db_group(path: str) -> dict | None:
                             "output_scale_kind": s["output_scale_kind"] or "",
                             "output_formula": s["output_formula"] or "",
                             "output_value_map": output_value_map,
+                            "output_byte_order": s["output_byte_order"] or "big",
+                            "output_signed": s["output_signed"],
                             "value_source": (
                                 "enum" if s["output_scale_kind"] == "enum"
                                 else "scaled" if s["output_scale_kind"] else "raw"
@@ -1238,7 +1249,10 @@ def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):
     if raw_type in {"block", "bytes", "hexdump"}:
         return data.hex().upper()
     if len(data) <= 4:
-        return int.from_bytes(data, "big", signed=raw_type in {"sbyte", "sword", "slong"})
+        order = "little" if (svc or {}).get("output_byte_order") == "little" else "big"
+        signed = (svc or {}).get("output_signed")
+        signed = bool(signed) if signed is not None else raw_type in {"sbyte", "sword", "slong"}
+        return int.from_bytes(data, order, signed=signed)
     return data.hex().upper()
 
 

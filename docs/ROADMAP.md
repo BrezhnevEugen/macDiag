@@ -362,6 +362,26 @@
 - Исправлено: signed-декодирование по `output_raw_type`
   (`sbyte/sword/slong`). Unsigned-типы не затронуты. Добавлен regression-тест.
 
+Состояние после одиннадцатого инкремента этапа 2 (авторитетный парсер CBF):
+
+- По наводке на jglim/CaesarSuite (+ rnd-ash/OpenVehicleDiag) отреверсен полный
+  формат output-параметров; зафиксирован в `docs/CBF_FORMAT.md`.
+- `caesar_vc.diag_presentations()` читает пул presentation ЭБУ и для каждого
+  `PRES_*` отдаёт авторитетные: ширину (`TypeLength`), знак (`SignBit`), порядок
+  байт (`ByteOrder`: 0=big, 1=little), единицу и линейный scale
+  (`MultiplyFactor`/`AddConstOffset`). Это супер­сидит name-эвристику.
+- `build_measure_db` (schema v16): новые колонки `byte_order`, `signed`; для
+  output с известным presentation берёт авторитетные width/sign/byteorder/unit/
+  formula из пула (`source=...+presentation_pool`).
+- backend `_raw_value` теперь читает по `output_byte_order` (little/big) и
+  `output_signed` из БД, а не хардкодит big-endian.
+- Пересборка: `output_units` 56680→115280, `output_formulas` 94749→165067,
+  `output_raw_types`→185506; **743 поля оказались little-endian** (раньше
+  читались неверно), 50358 signed; из пула 189238/189343. Stride-guard вырос до
+  97.7%. Добавлены тесты `diag_presentations` и byte-order в `_raw_value`.
+- Осталось: подключить ширину sub-byte/bit-полей из пула (1-bit и т.п.) и убрать
+  мёртвую колонку `bit_len` отдельной миграцией.
+
 Состояние после справочного CAN-инкремента:
 
 - `measurements.sqlite` schema v10 содержит таблицы `reference_links` и
