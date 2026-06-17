@@ -1238,7 +1238,7 @@ def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):
     if raw_type in {"block", "bytes", "hexdump"}:
         return data.hex().upper()
     if len(data) <= 4:
-        return int.from_bytes(data, "big")
+        return int.from_bytes(data, "big", signed=raw_type in {"sbyte", "sword", "slong"})
     return data.hex().upper()
 
 

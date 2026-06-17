@@ -949,3 +949,31 @@ def test_raw_value_uses_real_byte_width_not_constant_bit_len():
         {"output_raw_type": "ulong", "output_byte_len": 4,
          "output_bit_pos": 24, "output_bit_len": 16},
     ) == 0x000A0001
+
+
+def test_raw_value_decodes_signed_types():
+    """sbyte/sword/slong must be two's-complement, not unsigned."""
+    from backend.mb import measurements
+
+    req = bytes.fromhex("220123")
+    # sword 0xFFC0 = -64; unsigned would read 65472.
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123FFC0"),
+        {"output_raw_type": "sword", "output_byte_len": 2,
+         "output_bit_pos": 24, "output_bit_len": 16},
+    ) == -64
+    # sbyte 0xFF = -1 (must read one byte).
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123FF7E"),
+        {"output_raw_type": "sbyte", "output_byte_len": 1,
+         "output_bit_pos": 24, "output_bit_len": 16},
+    ) == -1
+    # unsigned counterpart stays positive.
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("620123FFC0"),
+        {"output_raw_type": "uword", "output_byte_len": 2,
+         "output_bit_pos": 24, "output_bit_len": 16},
+    ) == 0xFFC0
