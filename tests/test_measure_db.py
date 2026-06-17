@@ -4,8 +4,11 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 import build_measure_db
 import measure_diag_coverage
+import measure_layout_check
 import measure_unmatched_jobs
 
 
@@ -977,3 +980,42 @@ def test_raw_value_decodes_signed_types():
         {"output_raw_type": "uword", "output_byte_len": 2,
          "output_bit_pos": 24, "output_bit_len": 16},
     ) == 0xFFC0
+
+
+def test_stride_consistency_scores_only_clean_groups():
+    # Clean, densely packed group: offsets 0,1,3,7 with widths 1,2,4,2.
+    # Gaps 1,2,4 each equal the field width -> 3/3 match.
+    clean = [("a", 0, 1), ("a", 1, 2), ("a", 3, 4), ("a", 7, 2)]
+    assert measure_layout_check.stride_consistency(clean) == (3, 3, 1)
+
+    # A mismatch: width says 2 but the next field is 4 bytes away.
+    mismatch = [("b", 0, 2), ("b", 4, 2), ("b", 6, 2), ("b", 8, 2)]
+    match, total, scored = measure_layout_check.stride_consistency(mismatch)
+    assert (match, total, scored) == (2, 3, 1)  # first gap=4!=2, rest match
+
+    # Overlapping/aliased reads (duplicate offsets) must be skipped entirely,
+    # so a noisy block cannot mask a real regression.
+    overlapping = [("c", 0, 4), ("c", 0, 4), ("c", 1, 4), ("c", 2, 4)]
+    assert measure_layout_check.stride_consistency(overlapping) == (0, 0, 0)
+
+    # Groups smaller than min_fields are ignored.
+    assert measure_layout_check.stride_consistency([("d", 0, 1), ("d", 1, 1)]) == (0, 0, 0)
+
+
+def test_layout_stride_matches_byte_len_on_local_db():
+    """If the proprietary DB is present, the on-wire field stride must agree
+    with the inferred byte_len for the vast majority of clean fields -- this is
+    the CBF-only guard that byte_len (not the constant bit_len) is the width."""
+    db_path = measure_layout_check.DEFAULT_DB
+    if not db_path.exists():
+        pytest.skip("local measurements.sqlite not present")
+    match, total, scored = measure_layout_check.stride_consistency(
+        measure_layout_check.stride_rows(db_path)
+    )
+    if total == 0:
+        pytest.skip("DB has no scalar output fields with layout offsets")
+    assert match / total >= 0.90, (
+        f"field stride agrees with byte_len only {match}/{total} "
+        f"({100 * match / total:.1f}%) across {scored} DIDs -- byte_len "
+        f"inference may have regressed"
+    )
