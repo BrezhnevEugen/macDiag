@@ -875,7 +875,10 @@ def diag_context(code: str, module: str | None = None, lang: str = "ru"):
     if ecu:
         try:
             g = measurements.groups_for(ecu, lang)
-            ctx["linked"] = {"measurement": g["measurement"], "service": g["service"]}
+            # rank the ECU's groups by relevance to THIS fault (not the flat list)
+            meas = measurements.rank_measurement_groups(
+                ecu, g["measurement"], diag.keywords(code))
+            ctx["linked"] = {"measurement": meas, "service": g["service"]}
         except Exception:  # noqa: BLE001
             ctx["linked"] = {"measurement": [], "service": []}
     # real pictures from configured providers (appended after generated schematics)

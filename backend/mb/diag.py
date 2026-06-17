@@ -16,6 +16,8 @@ WIS/Xentry guided-diagnostics content (that needs the WIS dataset, see wis.py).
 
 from __future__ import annotations
 
+import re
+
 from . import dtc
 
 LANGS = ("ru", "en", "de")
@@ -23,6 +25,48 @@ LANGS = ("ru", "en", "de")
 
 def _pick(d: dict, lang: str):
     return d.get(lang) or d.get("en") or next(iter(d.values()))
+
+
+# --- fault → keywords, to rank the ECU's measurement groups by relevance ------
+_STOP = frozenset(
+    "der die das den dem ein eine einer und mit von fur bank links rechts the "
+    "and for with system fault error code internal siehe model werkstatthandbuch "
+    "erkannt unplausibel mehrere multiple detected".split()
+)
+# Standard OBD-II P-code system areas (by number) -> de/en terms. Covers any
+# P-code even when the ECU-specific description is unknown.
+_OBD_AREAS = (
+    (0, 199, {"gemisch", "lambda", "kraftstoff", "fuel", "luftmasse", "mixture",
+              "drossel", "einspritz", "throttle"}),
+    (200, 299, {"einspritz", "injector", "kraftstoff", "fuel", "zylinder", "cylinder"}),
+    (300, 399, {"zund", "ignition", "misfire", "aussetzer", "verbrennung", "klopf",
+                "zundspule", "knock"}),
+    (400, 499, {"abgas", "egr", "agr", "kat", "catalyst", "emission", "ruckfuhr",
+                "sekundarluft", "evap", "lambda"}),
+    (500, 599, {"leerlauf", "idle", "drehzahl", "speed", "geschwindigkeit"}),
+    (600, 699, {"steuergerat", "modul", "computer", "internal"}),
+    (700, 999, {"getriebe", "transmission", "gang", "kupplung", "wandler", "gear"}),
+)
+
+
+def _tokenize(text: str) -> set[str]:
+    return {w for w in re.split(r"[^0-9a-zA-Zа-яёäöüß]+", (text or "").lower())
+            if len(w) >= 4 and w not in _STOP}
+
+
+def keywords(code: str) -> set[str]:
+    """Fault terms (de/en/ru) for ranking related groups: the code's own
+    description plus the standard OBD-II system area implied by its number."""
+    kw: set[str] = set()
+    for lang in LANGS:
+        kw |= _tokenize(dtc.describe(code, lang))
+    if (code or "")[:1].upper() == "P" and code[1:].isdigit():
+        n = int(code[1:])
+        for lo, hi, terms in _OBD_AREAS:
+            if lo <= n <= hi:
+                kw |= terms
+                break
+    return kw
 
 
 # Per-code probable causes (override the per-area defaults).

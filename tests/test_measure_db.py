@@ -986,6 +986,31 @@ def test_raw_value_decodes_signed_types():
     ) == 0xFFC0
 
 
+def test_diag_keywords_cover_obd_area_and_description():
+    from backend.mb import diag
+
+    # standard OBD-II area by number, even without an ECU-specific description
+    assert {"klopf", "misfire", "zund"} <= diag.keywords("P0300")
+    assert "drossel" in diag.keywords("P0120")              # throttle area
+    assert {"egr", "kat"} <= diag.keywords("P0401")         # emissions area
+    # a known MB code also contributes its own description terms
+    assert diag.keywords("P0300")                            # non-empty
+
+
+def test_rank_measurement_groups_surfaces_relevant_first():
+    """A DTC drill-down should order the ECU's groups by relevance, not flat."""
+    from backend.mb import diag, measurements
+
+    if not measurements.MEASURE_DB.exists():
+        pytest.skip("local measurements.sqlite not present")
+    groups = measurements.groups_for("ME97", "ru").get("measurement", [])
+    if not any("Klopf" in (g.get("title") or "") for g in groups):
+        pytest.skip("ME97 measurement groups not in this DB")
+    ranked = measurements.rank_measurement_groups("ME97", groups, diag.keywords("P0300"))
+    assert ranked[0]["relevance"] >= 1
+    assert "Klopf" in ranked[0]["title"]                     # knock group for a misfire fault
+
+
 def test_w221_x164_ecu_routing_addresses():
     """The target cars' ECUs resolve to their real diagnostic CAN ids/protocol
     from ecu_db, so a Live read addresses them correctly (the single 500k OBD

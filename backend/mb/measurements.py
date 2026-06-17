@@ -844,6 +844,36 @@ def diagnostic_coverage(ecu: str = "") -> dict:
             "missing_jobs": max(0, distinct_jobs - matched_jobs), "coverage_pct": pct}
 
 
+def rank_measurement_groups(ecu: str, groups: list[dict],
+                            keywords: set[str]) -> list[dict]:
+    """Order an ECU's measurement groups by relevance to a fault's keywords, so a
+    DTC drill-down surfaces the useful groups first instead of the whole list.
+
+    Each group gains a `relevance` score (count of fault keywords found in its
+    title + member job/alias names). Stable for ties (keeps the original order).
+    """
+    if not groups or not keywords or not _norm(ecu):
+        return groups
+    blobs: dict[str, str] = {}
+    try:
+        with sqlite3.connect(MEASURE_DB) as db:
+            for path, text in db.execute(
+                "SELECT group_path, GROUP_CONCAT(job || ' ' || COALESCE(alias, ''), ' ') "
+                "FROM services WHERE ecu = ? GROUP BY group_path",
+                (_norm(ecu),),
+            ):
+                blobs[path] = (text or "").lower()
+    except sqlite3.Error:
+        return groups
+    ranked = []
+    for i, g in enumerate(groups):
+        blob = (str(g.get("title", "")) + " " + blobs.get(g.get("path", ""), "")).lower()
+        score = sum(1 for k in keywords if k in blob)
+        ranked.append((-score, i, {**g, "relevance": score}))
+    ranked.sort()
+    return [g for _, _, g in ranked]
+
+
 def groups_for(ecu: str, lang: str = "ru") -> dict:
     """Measurement + service groups for an ECU: curated .vsg groups, plus an
     auto-generated 'all parameters' group from the CBF."""

@@ -613,7 +613,9 @@ async function drillDtc(code) {
   const steps = (c.checks || []).map((s, i) =>
     `${i ? '<span class="arrow">→</span>' : ""}<span class="step">${i + 1}. ${esc(s)}</span>`).join("");
   const lk = c.linked || { measurement: [], service: [] };
-  const grpChip = (g) => `<button class="chip linkbtn" data-grp="${esc(g.path)}">${esc(g.title)}</button>`;
+  const grpChip = (g) => `<button class="chip linkbtn${g.relevance > 0 ? " hot" : ""}" data-grp="${esc(g.path)}"${g.relevance > 0 ? ' title="по этой ошибке"' : ""}>${esc(g.title)}</button>`;
+  const measHot = (lk.measurement || []).filter((g) => g.relevance > 0);
+  const measRest = (lk.measurement || []).filter((g) => !(g.relevance > 0));
   const imgs = (c.media || []).filter((m) => m.kind !== "doc");
   const docs = (c.media || []).filter((m) => m.kind === "doc");
   const schematics = imgs.filter((m) => m.kind === "schematic");
@@ -645,8 +647,10 @@ async function drillDtc(code) {
     `<button class="ghost" id="drillClose">${t("Закрыть")}</button></div>` +
     `<h3 style="margin-top:16px">${esc(L.causes || "")}</h3><ul style="margin:0; padding-left:20px">${li(c.causes)}</ul>` +
     `<h3>${esc(L.checks || "")}</h3><div class="flow">${steps}</div>` +
-    ((lk.measurement && lk.measurement.length) ?
-      `<h3>${t("Связанные группы измерений")}</h3><div class="chips">${lk.measurement.map(grpChip).join("")}</div>` : "") +
+    (measHot.length ?
+      `<h3>${t("Рекомендуемые группы по ошибке")}</h3><div class="chips">${measHot.map(grpChip).join("")}</div>` : "") +
+    (measRest.length ?
+      `<h3 class="muted" style="font-weight:400">${measHot.length ? t("Остальные группы измерений") : t("Связанные группы измерений")}</h3><div class="chips">${measRest.map(grpChip).join("")}</div>` : "") +
     ((lk.service && lk.service.length) ?
       `<h3>${t("Связанные процедуры")}</h3><div class="chips">${lk.service.map(grpChip).join("")}</div>` : "") +
     schematicsHtml +
