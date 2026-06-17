@@ -217,6 +217,32 @@ def test_presentation_records_do_not_scale_block_layouts():
     assert "PRES_BLK_FirstStrt_Km" not in records
 
 
+@pytest.mark.skipif(not CEPC_MFA.exists(), reason="proprietary CBF library not present")
+def test_diag_presentations_authoritative_width_sign_scale():
+    """The presentations pool gives the real width/sign/byte-order/scale, which
+    is correct where presentation_meta's name heuristic guesses (see
+    docs/CBF_FORMAT.md)."""
+    from caesar_vc import diag_presentations
+
+    pres = diag_presentations(CEPC_MFA)
+    # Whole pool decodes; every entry is big-endian on this ECU.
+    assert len(pres) > 500
+    assert all(p["byte_order"] == "big" for p in pres.values())
+
+    bat = pres["PRES_IN_Battery_voltage"]
+    assert bat["byte_len"] == 2
+    assert bat["signed"] is True
+    assert bat["unit"] == "V"
+    assert bat["scales"][0]["factor"] == 0.0078125  # exactly 1/128
+
+    # Heuristic byte_len was wrong for these; the pool has the real width.
+    assert pres["PRES_DC_CNTR_U8"]["byte_len"] == 1
+    dst = pres["PRES_DC_DST_KM"]
+    assert dst["byte_len"] == 4
+    assert dst["unit"] == "km"
+    assert round(dst["scales"][0]["factor"], 4) == 0.1
+
+
 @pytest.mark.skipif(not EZS.exists(), reason="proprietary CBF library not present")
 def test_parse_cbf_ezs164():
     from parse_cbf import parse_cbf

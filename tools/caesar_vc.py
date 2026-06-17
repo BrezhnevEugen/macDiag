@@ -116,6 +116,14 @@ def rf_int(r: Reader, bf: Bitflags, size: int, default: int = 0) -> int:
     raise ValueError(size)
 
 
+def rf_float(r: Reader, bf: Bitflags, default: float = 0.0) -> float:
+    if not bf.next():
+        return default
+    v = struct.unpack_from("<f", r.d, r.pos)[0]
+    r.pos += 4
+    return v
+
+
 def rf_str(r: Reader, bf: Bitflags, base: int) -> str | None:
     if not bf.next():
         return None
@@ -552,6 +560,112 @@ def _presentation_records(r: Reader, strings: list[str] | None = None) -> dict[s
     return out
 
 
+# --- Authoritative DiagPresentation pool (CaesarSuite layout) ---------------
+# See docs/CBF_FORMAT.md. These give the real width / byte order / signedness /
+# scaling / unit per presentation, superseding the name heuristics above.
+def _parse_scale(r: Reader, base: int) -> dict:
+    """Parse one Caesar Scale record: linear factor/offset + enum bounds/label."""
+    r.seek(base)
+    bf = Bitflags(r.u16())
+    enum_low = rf_int(r, bf, 4, -1)           # EnumLowBound
+    enum_high = rf_int(r, bf, 4, -1)          # EnumUpBound
+    rf_int(r, bf, 4, -1)                       # PrepLowBound
+    rf_int(r, bf, 4, -1)                       # PrepUpBound
+    factor = rf_float(r, bf, 1.0)             # MultiplyFactor
+    offset = rf_float(r, bf, 0.0)             # AddConstOffset
+    rf_int(r, bf, 4); rf_int(r, bf, 4)        # SICount, OffsetSI
+    rf_int(r, bf, 4); rf_int(r, bf, 4)        # USCount, OffsetUS
+    enum_label = rf_int(r, bf, 4, -1)         # EnumDescription (CTF)
+    return {"enum_low": enum_low, "enum_high": enum_high,
+            "factor": factor, "offset": offset, "enum_label": enum_label}
+
+
+def _parse_diag_presentation(r: Reader, base: int, strings: list[str]) -> dict:
+    """Parse a DiagPresentation: width, byte order, sign, unit, linear scale."""
+    r.seek(base)
+    bf = Bitflags(r.u32())
+    r.u16()                                   # extended bitflags (fields >32)
+    qualifier = rf_str(r, bf, base)           # 1 Qualifier
+    rf_int(r, bf, 4, -1)                       # 2 Description_CTF
+    scale_off = rf_int(r, bf, 4, -1)          # 3 ScaleTableOffset (rel to base)
+    scale_count = rf_int(r, bf, 4)           # 4 ScaleCountMaybe
+    for _ in range(8):
+        rf_int(r, bf, 4)                       # 5-12 Unk
+    for _ in range(3):
+        rf_int(r, bf, 2)                       # 13-15 Unk (i16)
+    unit_ctf = rf_int(r, bf, 4, -1)           # 16 DisplayedUnit_CTF
+    rf_int(r, bf, 4); rf_int(r, bf, 4)        # 17-18
+    rf_int(r, bf, 4)                           # 19 EnumMaxValue
+    rf_int(r, bf, 4)                           # 20 Unk14
+    rf_int(r, bf, 4)                           # 21 Unk15
+    rf_int(r, bf, 4)                           # 22 Description2_CTF
+    rf_int(r, bf, 4); rf_int(r, bf, 4); rf_int(r, bf, 4)  # 23-25
+    type_len = rf_int(r, bf, 4, -1)           # 26 TypeLength_1A
+    rf_int(r, bf, 1, -1)                       # 27 InternalDataType
+    type_1c = rf_int(r, bf, 1, -1)            # 28 Type_1C
+    rf_int(r, bf, 1)                           # 29 Unk1d
+    sign_bit = rf_int(r, bf, 1)              # 30 SignBit
+    byte_order = rf_int(r, bf, 1)            # 31 ByteOrder
+    # TypeLength is a byte count when Type_1C == 0, otherwise a bit count.
+    width_bits = type_len * 8 if type_1c == 0 else type_len
+    scales = []
+    if scale_off >= 0 and 0 < scale_count <= 0x400:
+        table = base + scale_off
+        for i in range(scale_count):
+            try:
+                entry = struct.unpack_from("<i", r.d, table + i * 4)[0]
+                scales.append(_parse_scale(r, table + entry))
+            except (struct.error, IndexError):
+                break
+    return {
+        "qualifier": qualifier or "",
+        "width_bits": width_bits,
+        "byte_len": width_bits // 8 if width_bits > 0 and width_bits % 8 == 0 else 0,
+        "signed": sign_bit in (1, 2),
+        "byte_order": "little" if byte_order == 1 else "big",
+        "unit": ctf(strings, unit_ctf),
+        "scales": scales,
+    }
+
+
+def _diag_presentations(r: Reader, cff: dict, strings: list[str]) -> dict[str, dict]:
+    data_buffer = cff["StringPoolSize"] + STUB_HEADER_SIZE + cff["CffHeaderSize"] + 4
+    ecu_table = cff["EcuOffset"] + cff["BaseAddress"]
+    out: dict[str, dict] = {}
+    for i in range(cff["EcuCount"]):
+        r.seek(ecu_table + i * 4)
+        ecu_base = ecu_table + r.i32()
+        try:
+            pool = _ecu_vc_pool(r, ecu_base, data_buffer)
+        except Exception:  # noqa: BLE001
+            continue
+        po, pc, ps = pool.get("pres_block"), pool.get("pres_count"), pool.get("pres_size")
+        if not po or not (0 < (pc or 0) <= 100000) or ps not in (4, 8):
+            continue
+        for k in range(pc):
+            try:
+                entry = struct.unpack_from("<i", r.d, po + k * ps)[0]
+                meta = _parse_diag_presentation(r, entry + po, strings)
+            except (struct.error, IndexError):
+                continue
+            if meta["qualifier"]:
+                out.setdefault(meta["qualifier"], meta)
+    return out
+
+
+def diag_presentations(path: Path) -> dict[str, dict]:
+    """Authoritative PRES_* metadata keyed by qualifier.
+
+    Returns width/byte_len, signedness, byte order, unit and linear scale read
+    straight from the ECU presentations pool (see docs/CBF_FORMAT.md), which is
+    correct where the name heuristics in presentation_meta() guess.
+    """
+    r = Reader(path.read_bytes())
+    cff = parse_cff(r)
+    strings = load_ctf_strings(r, cff)
+    return _diag_presentations(r, cff, strings)
+
+
 # --- ECU header: reach the VcDomain pool ------------------------------------
 def _ecu_vc_pool(r: Reader, base: int, data_buffer: int) -> dict:
     r.seek(base)
@@ -585,8 +699,14 @@ def _ecu_vc_pool(r: Reader, base: int, data_buffer: int) -> dict:
     vc_block = rf_int(r, bf, 4) + data_buffer  # 34 VcDomain_BlockOffset
     vc_count = rf_int(r, bf, 4)              # 35 VcDomain_EntryCount
     vc_size = rf_int(r, bf, 4)              # 36 VcDomain_EntrySize
+    rf_int(r, bf, 4)                          # 37 VcDomain_BlockSize
+    pres_block = rf_int(r, bf, 4) + data_buffer  # 38 Presentations_BlockOffset
+    pres_count = rf_int(r, bf, 4)           # 39 Presentations_EntryCount
+    pres_size = rf_int(r, bf, 4)           # 40 Presentations_EntrySize
     return {"vc_block": vc_block, "vc_count": vc_count, "vc_size": vc_size,
-            "dj_block": dj_block, "dj_count": dj_count, "dj_size": dj_size}
+            "dj_block": dj_block, "dj_count": dj_count, "dj_size": dj_size,
+            "pres_block": pres_block, "pres_count": pres_count,
+            "pres_size": pres_size}
 
 
 # --- DiagService: extract request bytes (SID + local id) --------------------
