@@ -752,10 +752,18 @@ async function refreshMeas(path) {
   const readNote = (p) => {
     if (!p.read_status || p.read_status === "simulated" || p.read_status === "hw_ok") return "";
     const sid = p.read_sid ? ` SID ${p.read_sid}` : "";
-    return p.read_status === "error"
-      ? `${t("ошибка чтения")}${sid}`
-      : `${t("запрос заблокирован")}${sid}`;
+    if (p.read_status === "error") return `${t("ошибка чтения")}${sid}`;
+    if (p.read_status === "na" || p.read_status === "missing_request")
+      return `N/A${sid}`;
+    return `${t("запрос заблокирован")}${sid}`;
   };
+  // per-parameter request/response debug record for the tooltip
+  window._dbgRead = (p) => [
+    p.read_req ? `req ${p.read_req}` : "",
+    p.read_resp ? `resp ${p.read_resp}` : "",
+    (p.read_raw !== null && p.read_raw !== undefined) ? `raw ${p.read_raw}` : "",
+    p.read_reason ? p.read_reason : "",
+  ].filter(Boolean).join("\n");
   // Load-collective blocks (PRES_BLK*) are exposed as one DiagService per cell
   // (job `<prefix>_COL_<n>`). Stitch the cells of one block into a single strip
   // instead of scattering dozens of gauges across the dashboard.
@@ -765,7 +773,7 @@ async function refreshMeas(path) {
     const m = COL.exec(p.job);
     if (!m) { renderGauge(g, p, readNote); return; }
     const b = blocks[m[1]] || (blocks[m[1]] = { unit: p.unit || "", cells: [] });
-    b.cells.push({ i: Number(m[2]), value: p.value, job: p.job });
+    b.cells.push({ i: Number(m[2]), value: p.value, job: p.job, p });
   });
   Object.keys(blocks).forEach((key) => renderBlock(g, key, blocks[key]));
 }
@@ -786,8 +794,8 @@ function renderGauge(g, p, readNote) {
     ? `${t("норма")} ${p.low}–${p.high} ${p.unit}` : "";
   const status = readNote(p);
   el.querySelector(".sub").textContent = [ref, status].filter(Boolean).join(" · ");
-  el.title = p.job + (p.note ? "\n(" + p.note + ")" : "") +
-    (p.read_reason ? "\n" + p.read_reason : "");
+  const dbg = window._dbgRead ? window._dbgRead(p) : "";
+  el.title = p.job + (p.note ? "\n(" + p.note + ")" : "") + (dbg ? "\n" + dbg : "");
 }
 
 function renderBlock(g, key, b) {
@@ -801,8 +809,10 @@ function renderBlock(g, key, b) {
   const title = key.replace(/^DT_(BLK3S|BLK)_/, "").replace(/_/g, " ");
   el.innerHTML =
     `<div class="blabel">${esc(title)} <span class="muted">${b.unit ? esc(b.unit) + " · " : ""}${b.cells.length}</span></div>` +
-    `<div class="bstrip">` + b.cells.map((cl) =>
-      `<span class="bcell" title="COL ${cl.i} · ${esc(cl.job)}">${esc(cl.value)}</span>`).join("") +
+    `<div class="bstrip">` + b.cells.map((cl) => {
+      const dbg = (window._dbgRead && cl.p) ? "\n" + window._dbgRead(cl.p) : "";
+      return `<span class="bcell" title="COL ${cl.i} · ${esc(cl.job)}${esc(dbg)}">${esc(cl.value)}</span>`;
+    }).join("") +
     `</div>`;
 }
 $("#measAuto").onclick = () => {
