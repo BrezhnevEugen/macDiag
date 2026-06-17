@@ -1165,6 +1165,8 @@ def _is_single_bit_output(svc: dict) -> bool:
         return True
     if scale_kind != "enum":
         return False
+    if _is_single_bit_presentation_name(svc.get("output_presentation") or ""):
+        return True
     values = set()
     for entry in svc.get("output_value_map") or []:
         try:
@@ -1173,6 +1175,15 @@ def _is_single_bit_output(svc: dict) -> bool:
         except (TypeError, ValueError, AttributeError):
             return False
     return bool(values) and values <= {0, 1}
+
+
+def _is_single_bit_presentation_name(name: str) -> bool:
+    up = (name or "").upper()
+    return bool(re.search(
+        r"(?:^|_)(?:.*_?1BIT|BIT_?1|ACTIVE_NOT_ACTIVE|TRUE_OR_FALSE|FALSE_OR_TRUE|"
+        r"ON_OFF|OFF_ON|SIGON_OFF)(?:_|$)",
+        up,
+    ))
 
 
 def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):

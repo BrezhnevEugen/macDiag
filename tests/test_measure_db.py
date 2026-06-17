@@ -869,6 +869,28 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
     ) == 1
     assert measurements._raw_value(
         req,
+        bytes.fromhex("62012308"),
+        {
+            "output_presentation": "PRES_Active_Not_active",
+            "output_raw_type": "ubyte",
+            "output_scale_kind": "enum",
+            "output_bit_pos": 27,
+            "output_bit_len": 16,
+        },
+    ) == 1
+    assert measurements._raw_value(
+        req,
+        bytes.fromhex("62012308"),
+        {
+            "output_presentation": "PRES_DOP_PRESENTATION_Pending_Undefiniert_Ok_Fault",
+            "output_raw_type": "ubyte",
+            "output_scale_kind": "enum",
+            "output_bit_pos": 27,
+            "output_bit_len": 16,
+        },
+    ) == 8
+    assert measurements._raw_value(
+        req,
         bytes.fromhex("620123000AFF"),
         {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
     ) == 0x000AFF
