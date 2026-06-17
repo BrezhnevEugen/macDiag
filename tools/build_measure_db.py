@@ -281,7 +281,10 @@ def _insert_diag_service(conn: sqlite3.Connection, ecu: str, qualifier: str,
     _insert_service_output(conn, ecu, qualifier, info, pres)
 
 
-_INT_RAW_TYPES = {"", "ubyte", "uword", "ulong", "sbyte", "sword", "slong"}
+# Heuristic raw types the authoritative pool may replace with a plain integer.
+# "block" is included: a BLK_*_COL cell is a single counter per DiagService, and
+# the pool gives its real width/scale, so it should decode as an int, not hex.
+_INT_RAW_TYPES = {"", "ubyte", "uword", "ulong", "sbyte", "sword", "slong", "block"}
 _SIGNED_RAW = {1: "sbyte", 2: "sword", 4: "slong"}
 _UNSIGNED_RAW = {1: "ubyte", 2: "uword", 4: "ulong"}
 
@@ -290,9 +293,9 @@ def _apply_presentation_pool(raw_type, byte_len, unit, scale_kind, formula,
                              byte_order, signed, pool_meta):
     """Override heuristic output metadata with authoritative pool values.
 
-    Only width/sign/byte-order on plain integer fields are rewritten; enum,
-    bcd, block, ascii, bool and hexdump categories keep their decode. Unit and
-    a linear scale are taken from the pool when it provides them.
+    Width/sign/byte-order on plain integer (and block-cell) fields are rewritten;
+    enum, bcd, ascii, bool and hexdump categories keep their decode. Unit and a
+    linear scale are taken from the pool when it provides them.
     """
     auth_bytes = int(pool_meta.get("byte_len") or 0)
     if auth_bytes in (1, 2, 4) and raw_type in _INT_RAW_TYPES:
@@ -300,6 +303,8 @@ def _apply_presentation_pool(raw_type, byte_len, unit, scale_kind, formula,
         byte_len = auth_bytes
         raw_type = (_SIGNED_RAW if signed else _UNSIGNED_RAW)[auth_bytes]
         byte_order = pool_meta.get("byte_order") or byte_order
+        if scale_kind == "block":
+            scale_kind = ""
     if pool_meta.get("unit") and not unit:
         unit = pool_meta["unit"]
     scales = pool_meta.get("scales") or []
