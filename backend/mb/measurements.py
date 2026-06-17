@@ -1141,13 +1141,38 @@ def _layout_data(resp: bytes, svc: dict | None) -> bytes | None:
         return None
     if bit_pos < 0 or bit_len <= 0:
         return None
-    if bit_pos % 8 or bit_len % 8:
+    if bit_pos % 8:
+        if not _is_single_bit_output(svc):
+            return None
+        byte_index = bit_pos // 8
+        if byte_index >= len(resp):
+            return b""
+        return bytes([(resp[byte_index] >> (bit_pos % 8)) & 1])
+    if bit_len % 8:
         return None
     start = bit_pos // 8
     end = start + (bit_len // 8)
     if end > len(resp):
         return b""
     return resp[start:end]
+
+
+def _is_single_bit_output(svc: dict) -> bool:
+    raw_type = (svc.get("output_raw_type") or "").lower()
+    scale_kind = (svc.get("output_scale_kind") or "").lower()
+    formula = (svc.get("output_formula") or "").strip()
+    if raw_type == "bool" or scale_kind == "boolean" or formula in {"x != 0", "x == 0"}:
+        return True
+    if scale_kind != "enum":
+        return False
+    values = set()
+    for entry in svc.get("output_value_map") or []:
+        try:
+            values.add(int(entry.get("low")))
+            values.add(int(entry.get("high")))
+        except (TypeError, ValueError, AttributeError):
+            return False
+    return bool(values) and values <= {0, 1}
 
 
 def _raw_value(req: bytes, resp: bytes, svc: dict | None = None):

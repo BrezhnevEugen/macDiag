@@ -800,6 +800,20 @@ def test_raw_value_decodes_bcd_and_keeps_blocks_as_hex():
     ) == "1234"
     assert measurements._raw_value(
         req,
+        bytes.fromhex("62012308"),
+        {
+            "output_raw_type": "ubyte",
+            "output_scale_kind": "enum",
+            "output_value_map": [
+                {"low": 0, "high": 0, "label": "No"},
+                {"low": 1, "high": 1, "label": "Yes"},
+            ],
+            "output_bit_pos": 27,
+            "output_bit_len": 16,
+        },
+    ) == 1
+    assert measurements._raw_value(
+        req,
         bytes.fromhex("620123000AFF"),
         {"output_raw_type": "uword", "output_bit_pos": 25, "output_bit_len": 16},
     ) == 0x000AFF
