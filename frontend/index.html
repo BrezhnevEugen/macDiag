@@ -39,41 +39,47 @@
   <main>
     <!-- OVERVIEW -->
     <section id="overview" class="tab active">
-      <div class="cards3">
-        <div class="card">
-          <div class="clabel" data-i18n="автомобиль">автомобиль</div>
-          <div id="ovVehicle" class="dim">—</div>
-          <button id="ovReadVin" class="ghost" style="margin-top:12px" data-i18n="Прочитать VIN">Прочитать VIN</button>
-        </div>
-        <div class="card">
-          <div class="clabel" data-i18n="адаптер">адаптер</div>
-          <div id="ovAdapter" class="dim">—</div>
-        </div>
-        <div class="card">
-          <div class="clabel" data-i18n="шина">шина</div>
-          <div id="ovBus" class="dim">—</div>
+      <div class="ov-split">
+        <!-- LEFT 30%: vehicle + adapter identity -->
+        <aside class="ov-side">
+          <div class="card ov-vehicle">
+            <div class="ov-car" id="ovCarImg"></div>
+            <div class="clabel" data-i18n="автомобиль">автомобиль</div>
+            <div id="ovVehicle" class="dim">—</div>
+            <button id="ovReadVin" class="ghost" style="margin-top:12px" data-i18n="Прочитать VIN">Прочитать VIN</button>
+          </div>
+          <div class="card">
+            <div class="clabel" data-i18n="адаптер">адаптер</div>
+            <div id="ovAdapter" class="dim">—</div>
+          </div>
+          <div class="card">
+            <div class="clabel" data-i18n="шина">шина</div>
+            <div id="ovBus" class="dim">—</div>
+          </div>
+        </aside>
+
+        <!-- RIGHT: quick state poll -->
+        <div class="ov-main">
+          <div class="ov-poll-head">
+            <span style="font-size:14px; font-weight:500" data-i18n="Быстрый опрос состояния">Быстрый опрос состояния</span>
+            <span style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <select id="ovChassis">
+                <option value="" data-i18n="Все шасси">Все шасси</option>
+                <option value="X164">X164 (GL)</option>
+                <option value="W221">W221 (S)</option>
+                <option value="W251">W251 (R)</option>
+                <option value="C216">C216 (CL)</option>
+              </select>
+              <button id="ovGw" class="ghost" data-i18n="Опросить шлюз">Опросить шлюз</button>
+              <button id="ovScan" data-i18n="⚡ Сканировать">⚡ Сканировать</button>
+            </span>
+          </div>
+          <div id="ovMetrics" class="metrics"></div>
+          <span id="ovScanStat" class="muted"></span>
+          <div id="gwInfo"></div>
+          <div id="ovScanGrid" class="ecugrid"></div>
         </div>
       </div>
-
-      <div id="ovMetrics" class="metrics" style="margin-top:12px"></div>
-
-      <div style="display:flex; align-items:center; justify-content:space-between; margin:20px 0 10px;">
-        <span style="font-size:14px; font-weight:500" data-i18n="Блоки управления">Блоки управления</span>
-        <span style="display:flex; gap:8px; align-items:center">
-          <select id="ovChassis">
-            <option value="" data-i18n="Все шасси">Все шасси</option>
-            <option value="X164">X164 (GL)</option>
-            <option value="W221">W221 (S)</option>
-            <option value="W251">W251 (R)</option>
-            <option value="C216">C216 (CL)</option>
-          </select>
-          <button id="ovGw" class="ghost" data-i18n="Опросить шлюз">Опросить шлюз</button>
-          <button id="ovScan" data-i18n="⚡ Сканировать">⚡ Сканировать</button>
-        </span>
-      </div>
-      <span id="ovScanStat" class="muted"></span>
-      <div id="gwInfo"></div>
-      <div id="ovScanGrid" class="ecugrid"></div>
     </section>
 
     <!-- LIVE -->

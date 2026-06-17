@@ -130,7 +130,40 @@ async function loadOverview() {
       `<div class="dim">ISO15765 · auto-baudrate ${t("из CBF")}</div>`
     : `<div class="dim">—</div>`;
   renderVehicle(v);
+  setCarImage($("#ovChassis") && $("#ovChassis").value);
 }
+$("#ovChassis") && ($("#ovChassis").onchange = () => setCarImage($("#ovChassis").value));
+function carSvg(kind) {
+  // Side-profile silhouette; stroke follows the theme, wheels filled via CSS.
+  if (kind === "suv") {
+    return `<svg viewBox="0 0 240 104" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M16 76 L20 48 C22 40 27 36 36 36 L60 36 L60 20 C60 16 63 14 68 14 L170 14 C178 14 184 17 188 25 L198 42 L214 48 C222 51 224 56 224 64 L224 76" fill="rgba(130,142,165,.16)"/>
+      <path d="M72 36 L72 18 L118 18 L118 36 M126 36 L126 18 L168 18 C172 18 176 20 178 25 L186 36"/>
+      <line x1="10" y1="76" x2="230" y2="76"/>
+      <circle cx="70" cy="80" r="15"/><circle cx="178" cy="80" r="15"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 240 104" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M14 78 L20 54 C22 47 27 44 35 44 L74 44 L96 24 C101 19 108 17 116 17 L150 17 C159 17 165 20 170 26 L184 44 L212 51 C220 53 224 58 224 66 L224 78" fill="rgba(130,142,165,.16)"/>
+    <path d="M100 44 L114 26 L150 26 L166 44 Z M132 26 L132 44"/>
+    <line x1="8" y1="78" x2="230" y2="78"/>
+    <circle cx="68" cy="82" r="15"/><circle cx="176" cy="82" r="15"/>
+  </svg>`;
+}
+const SUV_CHASSIS = new Set(["X164", "X166", "W251", "W164", "W463"]);
+function setCarImage(chassis) {
+  const box = document.getElementById("ovCarImg");
+  if (!box) return;
+  const c = (chassis || "").toUpperCase();
+  box.innerHTML = carSvg(SUV_CHASSIS.has(c) ? "suv" : "sedan");
+  if (!c) return;
+  // optional: drop a real photo at frontend/img/<chassis>.jpg to override the silhouette
+  const img = new Image();
+  img.alt = c;
+  img.onload = () => { box.innerHTML = ""; box.appendChild(img); };
+  img.src = "img/" + c.toLowerCase() + ".jpg";
+}
+
 function renderVehicle(v) {
   if (!v.vin) {
     $("#ovVehicle").innerHTML = v.connected
@@ -243,6 +276,7 @@ function renderGateway(info) {
       const el = $(s);
       if (el && [...el.options].some((o) => o.value === info.chassis_token)) el.value = info.chassis_token;
     });
+    setCarImage(info.chassis_token);
   }
   if (info.engine) {
     const v = $("#ovVehicle");
