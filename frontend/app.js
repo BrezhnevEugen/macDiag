@@ -169,26 +169,62 @@ function setCarImage(chassis) {
   img.src = "img/" + c.toLowerCase() + ".jpg";
 }
 // Chassis is auto-detected from the gateway; the dropdown is a manual fallback.
-const CHASSIS_LABEL = { X164: "X164 (GL)", W221: "W221 (S)", W251: "W251 (R)", C216: "C216 (CL)" };
+// Group by model family first («выбор группы»), concrete chassis code under it.
+const CHASSIS_FAMILIES = [
+  ["A-Class", ["W168", "W169", "W176", "W177"]],
+  ["B-Class", ["W245", "W246", "W247"]],
+  ["C-Class", ["W202", "W203", "W204", "W205", "S202", "S203", "S204", "S205", "C204", "C205", "A205"]],
+  ["E-Class", ["W210", "W211", "W212", "W213", "S210", "S211", "S212", "S213", "C207", "C238", "A207", "A238"]],
+  ["S-Class / CL", ["W140", "W220", "W221", "W222", "V221", "V222", "C215", "C216", "C217", "A217"]],
+  ["CLS", ["W219", "C218", "C257", "X218"]],
+  ["CLK", ["C208", "A208", "C209", "A209"]],
+  ["SL", ["R129", "R230", "R231"]],
+  ["SLK / SLC", ["R170", "R171", "R172"]],
+  ["SLS / AMG GT", ["C190", "C197", "R197"]],
+  ["ML / GLE", ["W163", "W164", "W166", "W167", "C292", "C167"]],
+  ["GL / GLS", ["X164", "X166", "X167"]],
+  ["GLK / GLC", ["X204", "X253", "C253"]],
+  ["GLA / CLA", ["X156", "X117", "C117"]],
+  ["G-Class", ["W463", "W461"]],
+  ["R-Class", ["W251", "V251"]],
+  ["Vito / V / Vaneo", ["W447", "W639", "W638", "W414"]],
+  ["Maybach", ["W240", "X222"]],
+  ["Sprinter", ["W905", "W906", "W907"]],
+];
+const CHASSIS_FAM = {};
+CHASSIS_FAMILIES.forEach(([fam, codes]) => codes.forEach((c) => (CHASSIS_FAM[c] = fam)));
 let _chassisLoaded = false;
 async function populateChassis() {
   if (_chassisLoaded) return;
   _chassisLoaded = true;
   try {
-    const by = (await api("/api/db/stats")).by_chassis || {};
+    const by = (await api("/api/db/stats")).by_chassis || {};   // {code: #ECUs}
     const sel = $("#ovChassis");
-    Object.entries(by).sort((a, b) => b[1] - a[1]).forEach(([c, n]) => {
+    const addOpt = (og, c) => {
       const o = document.createElement("option");
-      o.value = c; o.textContent = `${CHASSIS_LABEL[c] || c} · ${n}`;
-      sel.appendChild(o);
+      o.value = c; o.textContent = c; o.title = `${by[c]} ${t("ЭБУ")}`;  // count → tooltip
+      og.appendChild(o);
+    };
+    CHASSIS_FAMILIES.forEach(([fam, codes]) => {
+      const present = codes.filter((c) => by[c]).sort((a, b) => by[b] - by[a]);
+      if (!present.length) return;
+      const og = document.createElement("optgroup"); og.label = fam;
+      present.forEach((c) => addOpt(og, c));
+      sel.appendChild(og);
     });
+    const other = Object.keys(by).filter((c) => !(c in CHASSIS_FAM)).sort();
+    if (other.length) {
+      const og = document.createElement("optgroup"); og.label = t("прочие");
+      other.forEach((c) => addOpt(og, c));
+      sel.appendChild(og);
+    }
   } catch (e) { /* keep the «Все шасси» fallback option */ }
 }
 function applyChassis(token, auto) {
   const det = $("#ovChassisDet"), sel = $("#ovChassis"), edit = $("#ovChassisEdit");
   if (auto && token) {
     if ([...sel.options].some((o) => o.value === token)) sel.value = token;
-    det.textContent = (t("шасси: ") + (CHASSIS_LABEL[token] || token));
+    det.textContent = t("шасси: ") + token + (CHASSIS_FAM[token] ? ` · ${CHASSIS_FAM[token]}` : "");
     det.classList.remove("hidden"); edit.classList.remove("hidden"); sel.classList.add("hidden");
   } else {
     det.classList.add("hidden"); edit.classList.add("hidden"); sel.classList.remove("hidden");
