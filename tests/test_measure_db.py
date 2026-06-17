@@ -986,6 +986,28 @@ def test_raw_value_decodes_signed_types():
     ) == 0xFFC0
 
 
+def test_w221_x164_ecu_routing_addresses():
+    """The target cars' ECUs resolve to their real diagnostic CAN ids/protocol
+    from ecu_db, so a Live read addresses them correctly (the single 500k OBD
+    channel + gateway handles the bus). Skips when the built ecu_db is absent."""
+    from backend.mb import ecu_db
+
+    if not ecu_db.DB_PATH.exists():
+        pytest.skip("ecu_db.sqlite not built")
+    expected = {
+        "ME97": (0x7E0, 0x7E8, "uds"),       # M273 engine
+        "MED177": (0x7E0, 0x7E8, "uds"),     # M276 engine
+        "VGSNAG3": (0x7E1, 0x7E9, "uds"),    # 722.9 transmission
+        "EZS221": (0x612, 0x482, "kwp"),     # W221 EZS
+    }
+    for name, (req, resp, proto) in expected.items():
+        e = ecu_db.get(name)
+        assert e, f"{name} missing from ecu_db"
+        assert e["can_request"] == req
+        assert e["can_response"] == resp
+        assert e["protocol"] == proto
+
+
 def test_sim_response_round_trips_through_real_decode():
     """The simulator synthesizes a raw response that the real decode path turns
     back into an in-range value (parity with hardware)."""
