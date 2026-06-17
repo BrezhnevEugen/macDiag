@@ -205,7 +205,8 @@ def _presentation_unit(tokens: list[str]) -> str:
 def _presentation_semantic_unit(tokens: list[str]) -> str:
     up = "_".join(tokens)
     token_set = set(tokens)
-    if any(t in {"CNTR", "CNT", "COUNTER", "CTNUM", "CTDENOM"} or t.endswith("CTR")
+    if any(t in {"CNTR", "CNT", "COUNTER", "CTNUM", "CTDENOM"} or
+           (t.endswith("CTR") and t != "FCTR")
            for t in token_set):
         return "count"
     if token_set & {"TRQ", "TORQUE", "DREHMOMENT"}:
@@ -216,12 +217,17 @@ def _presentation_semantic_unit(tokens: list[str]) -> str:
         return "rpm"
     if "PRES_RAIL" in up or token_set & {"DRUCK"}:
         return "bar"
-    if token_set & {"SPANNUNG"}:
+    if any("VOLT" in t or "SPANNUNG" in t for t in token_set):
         return "V"
+    if token_set & {"ODOMETER", "KILOMETERSTAND"}:
+        return "km"
     return ""
 
 
 def _presentation_scale(tokens: list[str]) -> dict:
+    for i, t in enumerate(tokens[:-1]):
+        if t == "FCTR" and tokens[i + 1].isdigit() and int(tokens[i + 1]) > 0:
+            return {"scale_kind": "linear", "formula": f"x / {int(tokens[i + 1])}"}
     for t in tokens:
         m = PRESENTATION_SCALE_RE.match(t)
         if not m:

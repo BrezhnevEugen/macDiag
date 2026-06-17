@@ -122,6 +122,12 @@ def test_presentation_meta_from_qualifier_name():
     assert presentation_meta("PRES_DC_CNTR")["unit"] == "count"
     assert presentation_meta("PRES_DOP_LABEL_Eep_numBlkCtr")["unit"] == "count"
     assert presentation_meta("PRES_DOP_LABEL_DIUMPR_ctNum")["unit"] == "count"
+    assert presentation_meta("PRES_VoltV")["unit"] == "V"
+    assert presentation_meta("PRES_Odometer_Value")["unit"] == "km"
+    fctr = presentation_meta("PRES_DC_FCTR_256")
+    assert fctr["unit"] == ""
+    assert fctr["scale_kind"] == "linear"
+    assert fctr["formula"] == "x / 256"
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
