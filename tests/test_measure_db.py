@@ -80,15 +80,37 @@ def test_insert_service_output_infers_linear_raw_type_from_layout():
                 "presentation_bit_offset": 0,
             },
         )
-        row = conn.execute(
+        build_measure_db._insert_service_output(
+            conn,
+            "CRD3_DEV",
+            "DT_TEMP",
+            {
+                "presentation": "PRES_Temp_Cels",
+                "presentation_raw_type": "",
+                "presentation_byte_len": 0,
+                "presentation_unit": "deg C",
+                "presentation_scale_kind": "",
+                "presentation_formula": "",
+                "presentation_meta_source": "presentation_name",
+                "presentation_bit_pos": 24,
+                "presentation_bit_len": 16,
+                "presentation_byte_offset": 3,
+                "presentation_bit_offset": 0,
+            },
+        )
+        rows = conn.execute(
             """
-            SELECT raw_type, byte_len, unit, scale_kind, formula, bit_len
+            SELECT qualifier, raw_type, byte_len, unit, scale_kind, formula, bit_len
             FROM service_outputs
+            ORDER BY qualifier
             """
-        ).fetchone()
+        ).fetchall()
     finally:
         conn.close()
-    assert row == ("uword", 2, "rpm", "linear", "x * 0.5", 16)
+    assert rows == [
+        ("DT_ENGINE_SPEED", "uword", 2, "rpm", "linear", "x * 0.5", 16),
+        ("DT_TEMP", "uword", 2, "deg C", "", "", 16),
+    ]
 
 
 def test_build_measure_db_and_read_from_backend(tmp_path: Path, monkeypatch):

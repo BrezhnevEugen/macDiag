@@ -306,7 +306,7 @@ def _insert_service_output(conn: sqlite3.Connection, ecu: str, qualifier: str,
     byte_offset = info.get("presentation_byte_offset")
     bit_offset = info.get("presentation_bit_offset")
     layout_raw_type, layout_byte_len = _raw_type_from_layout(bit_len)
-    if not raw_type and layout_raw_type and bit_offset == 0 and scale_kind == "linear":
+    if not raw_type and layout_raw_type and bit_offset == 0 and (scale_kind == "linear" or unit):
         raw_type, byte_len = layout_raw_type, layout_byte_len
     source = "cbf_diag_inline"
     meta_source = info.get("presentation_meta_source") or (
