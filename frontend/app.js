@@ -131,6 +131,9 @@ async function loadOverview() {
     : `<div class="dim">—</div>`;
   renderVehicle(v);
   setCarImage($("#ovChassis") && $("#ovChassis").value);
+  // Identity (engine/chassis/equipment + car image) comes from the gateway —
+  // pull it once on connect so the card fills without a manual «Опросить шлюз».
+  if (v.connected && !_gw) api("/api/gateway/info").then(renderGateway).catch(() => {});
 }
 $("#ovChassis") && ($("#ovChassis").onchange = () => setCarImage($("#ovChassis").value));
 function carSvg(kind) {
