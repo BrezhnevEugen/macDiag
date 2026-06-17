@@ -224,6 +224,10 @@ def _presentation_semantic_unit(tokens: list[str]) -> str:
         return "V"
     if token_set & {"ODOMETER", "KILOMETERSTAND"}:
         return "km"
+    if token_set & {"AIRMASSPERCYL", "LUFTMASSE"}:
+        return "mg/stroke"
+    if token_set & {"INJMASS", "KRAFTSTOFFMENGE", "RATFUELMASS"}:
+        return "mg"
     return ""
 
 

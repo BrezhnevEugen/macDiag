@@ -135,6 +135,10 @@ def test_presentation_meta_from_qualifier_name():
     dc_time = presentation_meta("PRES_LINEAR_DC_TIME_5S")
     assert dc_time["unit"] == "s"
     assert dc_time["formula"] == "x * 5"
+    assert presentation_meta("PRES_InjMass")["unit"] == "mg"
+    assert presentation_meta("PRES_Kraftstoffmenge_M")["unit"] == "mg"
+    assert presentation_meta("PRES_AirMassPerCyl")["unit"] == "mg/stroke"
+    assert presentation_meta("PRES_Luftmasse")["unit"] == "mg/stroke"
 
 
 @pytest.mark.skipif(not CRD3.exists(), reason="proprietary CBF library not present")
