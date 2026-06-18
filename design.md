@@ -200,6 +200,56 @@ battery voltage; a busy spinner. State, not navigation.
 7. **Словарь — Dictionary.** A translation editor to curate RU/EN/DE labels for
    jobs and measurement groups — the localization layer over the normalized data.
 
+## Operational logic — faults · coding · programming
+
+These three flows are the dangerous/expert end of the app. The UI must make the
+read→understand→act path obvious and the risk legible: read-only is the default,
+every write is explicit, reversible, and logged.
+
+### Faults (DTC) — read & guided diagnosis
+- **Read.** Pick a module → query its fault memory (UDS `0x19` / KWP `0x18`).
+  Each row: code · status · description · raw bytes. The whole read is one
+  request; the panel shows the *outcome*, not progress.
+- **States to render distinctly:** `ok` (answered — list may be empty = "no
+  faults"), `present` (on the bus but won't report — NRC), `no_response`,
+  `adapter_error`. Empty-but-ok is a success (green), not an error.
+- **Drill-down** (click a code): probable causes → a check-list flow → the
+  **measurement groups ranked by relevance to this fault** (highlighted "hot"
+  chips first, rest after) → StarFinder/WIS schematics & docs in a lightbox.
+  The drill turns a code into "what to look at next", linking straight into Live
+  data for the relevant group.
+- **Clear** is a separate destructive action (danger button): it erases stored
+  faults and must read as consequential, never adjacent to a benign control.
+
+### Variant coding — read · decode · change · write (with a net)
+- **Read.** List coding domains → read the ECU's coding DID → decode it into
+  named **option fragments**, each showing the current value among its choices.
+  Reading is always safe.
+- **Change.** The user picks one option in one fragment; the new coding bytes are
+  computed locally (the chosen option's stored bit-pattern is written into the
+  fragment — no free-form byte editing).
+- **Write = explicit + backed up + logged.** A write (`POST /api/coding/apply`)
+  first **reads and records the current value to a backup journal**, then writes
+  the new coding (`2E`/WriteDataByIdentifier), acquiring security access if the
+  service requires it. The backup is non-blocking but always attempted; a
+  rollback journal (`/api/coding/backups`, newest-first) is available for manual
+  restore. Surface the backup + security level in the result.
+- **Posture.** Coding is engineer-only. The button is deliberate ("apply"), the
+  result shows what changed, the LID, the security level used, and the backup id.
+
+### Programming (flashing) — read-only today, full write is coming
+- **Today (concept/scaffold):** identify and **catalogue CFF flash images**
+  (part number, software, version, size) and read an ECU's identification DIDs
+  (current part number / software version) over diagnostics, so you can *compare*
+  what's installed vs. what's available. No writes yet.
+- **Planned — full ECU programming (flash write).** This is a deliberate next
+  phase, not a permanent limitation. The flash mode will be a guarded,
+  hardware-only, audited, single-purpose flow: battery/voltage + diagnostic
+  session preconditions, a clear progress/verify/resume path, and a hard
+  confirmation — because an interrupted flash can brick an ECU. Design it as an
+  isolated "programming" mode distinct from everyday diagnostics, so the UI can
+  grow into real writing without ever making it feel casual.
+
 ## Principles
 
 1. **Dark, flat, 1px.** No shadows or gradients except the faint vehicle-image
