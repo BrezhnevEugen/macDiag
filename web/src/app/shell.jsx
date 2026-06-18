@@ -11,7 +11,11 @@ const NAV = [
   { id: "flash", label: "Программирование", icon: "drive" },
 ];
 
-function Sidebar({ active, onNav, connected, voltage, open, onClose }) {
+function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
+  const src = mode === "hw" ? "Openport 2.0" : "Эмулятор";
+  const sub = connected
+    ? `${src}${voltage != null ? ` · ${voltage} В` : ""}`
+    : `${src} · не подключено`;
   return (
     <>
       <div className={"mac-scrim" + (open ? " show" : "")} onClick={onClose}></div>
@@ -41,7 +45,7 @@ function Sidebar({ active, onNav, connected, voltage, open, onClose }) {
               <span className={"mac-statusdot " + (connected ? "on" : "off")}></span>
               <span className="mac-conn-text">
                 <b>{connected ? "Подключено" : "Не подключено"}</b>
-                <small>{connected ? `Openport 2.0 · ${voltage} В` : "симулятор готов"}</small>
+                <small>{sub}</small>
               </span>
             </div>
           </div>
@@ -51,7 +55,8 @@ function Sidebar({ active, onNav, connected, voltage, open, onClose }) {
   );
 }
 
-function AppBar({ title, subtitle, theme, setTheme, dir, setDir, connected, busy, onConnect, onMenu }) {
+function AppBar({ title, subtitle, theme, setTheme, dir, setDir, mode, onMode,
+                 connected, busy, onConnect, onMenu }) {
   return (
     <header className="mac-appbar">
       <button className="mac-iconbtn mac-menu" onClick={onMenu} aria-label="Меню"><Icon name="menu" size={20} /></button>
@@ -61,6 +66,10 @@ function AppBar({ title, subtitle, theme, setTheme, dir, setDir, connected, busy
       </div>
 
       <div className="mac-appbar-actions">
+        <div className="mac-segctl" role="group" aria-label="Источник данных" title="Эмулятор или реальный адаптер">
+          <button className={mode === "sim" ? "on" : ""} onClick={() => onMode && onMode("sim")} disabled={busy}>Эмулятор</button>
+          <button className={mode === "hw" ? "on" : ""} onClick={() => onMode && onMode("hw")} disabled={busy}>Адаптер</button>
+        </div>
         <div className="mac-segctl" role="group" aria-label="Направление">
           <button className={dir === "cockpit" ? "on" : ""} onClick={() => setDir("cockpit")}>Cockpit</button>
           <button className={dir === "workshop" ? "on" : ""} onClick={() => setDir("workshop")}>Workshop</button>
