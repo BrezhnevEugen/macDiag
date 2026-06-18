@@ -51,20 +51,23 @@ function ModernApp() {
   async function refreshStatus() { try { applyStatus(await apiGet("/api/status")); } catch (e) {} }
   React.useEffect(() => { refreshStatus(); }, []);
 
+  const NO_BACKEND = "Бэкенд недоступен — запущен ли uvicorn на :8000? (терминал 1)";
+  const errFrom = (ok, data, error, fallback) =>
+    (data && data.error) || (!data ? NO_BACKEND : (error || fallback));
   // эмулятор/адаптер — POST /api/mode switches the backend and (re)connects
   async function switchMode(m) {
     if (m === mode || busy) return;
     setBusy(true); setErr("");
     const { ok, data, error } = await call(`/api/mode?mode=${m}`);
     applyStatus(data);
-    if (!ok || (data && data.error)) setErr((data && data.error) || error || "не удалось переключить режим");
+    if (!ok || (data && data.error)) setErr(errFrom(ok, data, error, "не удалось переключить режим"));
     setBusy(false);
   }
   async function toggleConnect() {
     setBusy(true); setErr("");
     const { ok, data, error } = await call(connected ? "/api/disconnect" : "/api/connect");
     applyStatus(data);
-    if (!ok || (data && data.error)) setErr((data && data.error) || error || "ошибка подключения");
+    if (!ok || (data && data.error)) setErr(errFrom(ok, data, error, "ошибка подключения"));
     setBusy(false);
   }
   function openDtc(name) { setDtcModule(name); setTab("dtc"); }
