@@ -9,6 +9,8 @@ const NAV = [
   { id: "modules", label: "Модули", icon: "cpu" },
   { id: "coding", label: "Кодирование", icon: "sliders" },
   { id: "flash", label: "Программирование", icon: "drive" },
+  { id: "refs", label: "Справка", icon: "book" },
+  { id: "dict", label: "Словарь", icon: "globe" },
 ];
 
 function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
@@ -25,7 +27,7 @@ function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
             <span className="mac-logo"><Icon name="car" size={20} /></span>
             <span>
               <span className="mac-wordmark">macDiag</span>
-              <span className="mac-tagline">W221 · X164 диагностика</span>
+              <span className="mac-tagline">Диагностика Mercedes-Benz</span>
             </span>
           </div>
 
@@ -55,8 +57,10 @@ function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
   );
 }
 
+const LANGS = ["ru", "en", "de"];
+
 function AppBar({ title, subtitle, theme, setTheme, dir, setDir, mode, onMode,
-                 connected, busy, onConnect, onMenu }) {
+                 lang, onLang, connected, busy, onConnect, onMenu }) {
   return (
     <header className="mac-appbar">
       <button className="mac-iconbtn mac-menu" onClick={onMenu} aria-label="Меню"><Icon name="menu" size={20} /></button>
@@ -73,6 +77,11 @@ function AppBar({ title, subtitle, theme, setTheme, dir, setDir, mode, onMode,
         <div className="mac-segctl" role="group" aria-label="Направление">
           <button className={dir === "cockpit" ? "on" : ""} onClick={() => setDir("cockpit")}>Cockpit</button>
           <button className={dir === "workshop" ? "on" : ""} onClick={() => setDir("workshop")}>Workshop</button>
+        </div>
+        <div className="mac-segctl" role="group" aria-label="Язык">
+          {LANGS.map((l) => (
+            <button key={l} className={lang === l ? "on" : ""} onClick={() => onLang && onLang(l)}>{l.toUpperCase()}</button>
+          ))}
         </div>
         <button className="mac-iconbtn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           aria-label="Тема" title="Светлая / тёмная">

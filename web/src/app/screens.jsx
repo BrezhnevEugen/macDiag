@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './icons.jsx';
 import { macDiagData } from './data.js';
+import { apiGet } from './api.js';
 // macDiag Modern — screen content. Uses modern class-based layout + shared data.
 const Ic = Icon;
 const D = () => macDiagData;
@@ -608,4 +609,95 @@ function Flash({ connected }) {
   );
 }
 
-export { Overview, Live, Dtc, Modules, Coding, Flash };
+// ---- Справка (references / library) -----------------------------------------
+function SearchBox({ value, onChange, placeholder }) {
+  return (
+    <div style={{ position: "relative", maxWidth: 440, marginBottom: 14 }}>
+      <span style={{ position: "absolute", left: 11, top: 9, color: "var(--muted)" }}><Ic name="search" size={16} /></span>
+      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", padding: "8px 12px 8px 34px", background: "var(--panel)", color: "var(--txt)",
+          border: "1px solid var(--line)", borderRadius: "var(--r-ctrl)", fontSize: 13, fontFamily: "var(--font-ui)" }} />
+    </div>
+  );
+}
+
+function Refs() {
+  const [refs, setRefs] = React.useState(null);
+  const [can, setCan] = React.useState(null);
+  const [q, setQ] = React.useState("");
+  React.useEffect(() => {
+    apiGet(`/api/references?limit=200${q ? "&q=" + encodeURIComponent(q) : ""}`).then(setRefs).catch(() => setRefs({ rows: [] }));
+  }, [q]);
+  React.useEffect(() => { apiGet("/api/can/examples").then(setCan).catch(() => setCan({ rows: [] })); }, []);
+  const rrows = (refs && refs.rows) || [];
+  const crows = (can && can.rows) || [];
+  return (
+    <div>
+      <SectionHead title="Справка — ссылки и CAN-факты" meta={`${rrows.length} ссылок · ${crows.length} CAN`} />
+      <SearchBox value={q} onChange={setQ} placeholder="поиск по CAN, gateway, сети…" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+        {rrows.map((r, i) => (
+          <a key={i} href={r.url} target="_blank" rel="noreferrer"
+            style={{ display: "block", background: "var(--panel)", border: "1px solid var(--line)",
+              borderRadius: "var(--r-card)", padding: "12px 14px", textDecoration: "none", color: "var(--txt)" }}>
+            <div style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.35 }}>{r.title}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", marginTop: 6 }}>{r.domain}</div>
+          </a>
+        ))}
+      </div>
+      {crows.length > 0 && (
+        <>
+          <SectionHead title="Проверенные CAN-факты" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))", gap: 10 }}>
+            {crows.map((c, i) => (
+              <div key={i} style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-card)", padding: "12px 14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <b style={{ fontFamily: "var(--font-mono)", color: "var(--accent-2)", fontSize: 16 }}>{c.can_id || "—"}</b>
+                  <span style={{ color: "var(--muted)", fontSize: 12 }}>{c.bus}</span>
+                </div>
+                <div style={{ color: "var(--txt-2)", fontSize: 12.5, marginTop: 6 }}>{[c.vehicle, c.payload_meaning || c.source_title].filter(Boolean).join(" · ")}</div>
+                {c.data_hex && <code style={{ display: "block", marginTop: 6, fontSize: 12 }}>{c.data_hex}</code>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---- Словарь (translation dictionary) ---------------------------------------
+const _thS = { textAlign: "left", padding: "9px 12px", color: "var(--muted)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".5px", borderBottom: "1px solid var(--line-2)" };
+const _tdS = { padding: "9px 12px", verticalAlign: "top", fontSize: 13 };
+
+function Dict({ lang }) {
+  const [data, setData] = React.useState(null);
+  const [q, setQ] = React.useState("");
+  React.useEffect(() => {
+    apiGet(`/api/measure/translations?lang=${lang || "ru"}&limit=100${q ? "&q=" + encodeURIComponent(q) : ""}`)
+      .then(setData).catch(() => setData({ rows: [] }));
+  }, [q, lang]);
+  const rows = (data && data.rows) || [];
+  return (
+    <div>
+      <SectionHead title="Словарь — переводы (RU / EN / DE)" meta={`${rows.length} строк · ${(lang || "ru").toUpperCase()}`} />
+      <SearchBox value={q} onChange={setQ} placeholder="поиск по тексту…" />
+      <div style={{ background: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-card)", overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={_thS}>Исходный текст</th><th style={_thS}>Перевод</th><th style={{ ..._thS, width: 96 }}>Тип</th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ borderTop: "1px solid var(--line-2)" }}>
+                <td style={_tdS}>{r.source_text}</td>
+                <td style={{ ..._tdS, color: r.translation ? "var(--txt)" : "var(--muted)" }}>{r.translation || "—"}</td>
+                <td style={{ ..._tdS, color: "var(--muted)" }}>{r.kind}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export { Overview, Live, Dtc, Modules, Coding, Flash, Refs, Dict };

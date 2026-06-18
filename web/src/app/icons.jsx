@@ -21,12 +21,15 @@ const ICON_PATHS = {
   download: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M7 10l5 5 5-5","M12 15V3"],
   upload:   ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M17 8l-5-5-5 5","M12 3v12"],
   drive:    ["M22 12H2","M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z","M6 16h.01","M10 16h.01"],
+  book:     ["M4 19.5A2.5 2.5 0 0 1 6.5 17H20","M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"],
+  globe:    ["M2 12h20","M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z","__cglobe"],
 };
 
 function Icon({ name, size = 18, style, strokeWidth = 1.75 }) {
   const parts = ICON_PATHS[name] || [];
   const extras = [];
   parts.forEach((p, i) => {
+    if (p === "__cglobe") return extras.push(React.createElement("circle", { key: "cg", cx: 12, cy: 12, r: 10 }));
     if (p === "__rect4x4") extras.push(React.createElement("rect", { key: "r1", x: 4, y: 4, width: 16, height: 16, rx: 2 }));
     else if (p === "__rect8x8") extras.push(React.createElement("rect", { key: "r2", x: 8, y: 8, width: 8, height: 8, rx: 1 }));
     else if (p === "__c7") extras.push(React.createElement("circle", { key: "c1", cx: 7, cy: 17, r: 2 }));
