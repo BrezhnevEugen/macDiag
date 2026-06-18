@@ -1,0 +1,51 @@
+/* macDiag — color tokens
+   Dark, GitHub-dark-derived palette for an automotive diagnostics tool.
+   Base ramp + semantic aliases. */
+:root {
+  /* ---- base surfaces (darkest → lightest) ---- */
+  --bg:        #0d1117;  /* app background */
+  --panel:     #161b22;  /* cards, inputs, tables-hover */
+  --panel-2:   #1c222b;  /* raised / nested panels, segmented hover */
+
+  /* ---- hairlines ---- */
+  --line:      #2a2f37;  /* primary border */
+  --line-2:    #21262d;  /* subtle divider (table rows, section rules) */
+
+  /* ---- text ---- */
+  --txt:       #e6edf3;  /* primary text */
+  --txt-2:     #adbac7;  /* secondary text */
+  --muted:     #8b949e;  /* labels, hints, meta */
+
+  /* ---- brand / interactive ---- */
+  --accent:    #1f6feb;  /* primary action blue (buttons, focus) */
+  --accent-2:  #388bfd;  /* lighter blue — links, code, active state */
+
+  /* ---- status ---- */
+  --ok:        #3fb950;  /* success / connected / pass */
+  --danger:    #f85149;  /* error / destructive / disconnected */
+  --warn:      #d29922;  /* warning / fault badges */
+
+  /* ---- diagnostic protocol coding ---- */
+  --uds:       #388bfd;  /* UDS (ISO 14229) protocol */
+  --kwp:       #d29922;  /* KWP2000-over-CAN protocol */
+
+  /* ---- status tint surfaces (low-alpha fills behind colored borders) ---- */
+  --ok-surface:     #11271a;  --ok-border:     #1f4a2c;
+  --danger-surface: #2a1416;  --danger-border: #4a1f22;
+  --warn-surface:   #251f12;  --warn-border:   #4d3d16;
+  --accent-surface: #10233d;  --accent-border: #1f4a8c;
+  --uds-surface:    #11233b;
+  --kwp-surface:    #2e2410;
+
+  /* ---- semantic aliases ---- */
+  --text-body:     var(--txt);
+  --text-dim:      var(--txt-2);
+  --text-meta:     var(--muted);
+  --surface-app:   var(--bg);
+  --surface-card:  var(--panel);
+  --surface-raise: var(--panel-2);
+  --border-card:   var(--line);
+  --border-soft:   var(--line-2);
+  --link:          var(--accent-2);
+  --focus-ring:    var(--accent);
+}

@@ -1,0 +1,37 @@
+/* macDiag — base element styles & keyframes
+   Minimal global resets + the two animations macDiag uses (spinner, toast).
+   Consumers get sensible defaults the moment they link styles.css. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--surface-app);
+  color: var(--text-body);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-base);
+}
+
+code, .mono {
+  font-family: var(--font-mono);
+}
+
+/* macDiag accent for inline code / hex */
+code {
+  font-size: var(--fs-meta);
+  color: var(--accent-2);
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* focus: macDiag tints the border, no outline ring */
+:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+}
+
+@keyframes mac-spin { to { transform: rotate(360deg); } }

@@ -1,0 +1,8 @@
+/* macDiag Design System — global entry point.
+   Consumers link THIS one file. It is a manifest of @imports only.
+   macDiag ships no webfont: typography is the host OS UI stack by design. */
+@import "tokens/colors.css";
+@import "tokens/fonts.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/base.css";

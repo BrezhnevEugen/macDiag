@@ -1,0 +1,23 @@
+/* macDiag — font declarations.
+   macDiag deliberately ships NO webfont binary: it renders in the host OS UI
+   font (San Francisco on Apple, Segoe/Roboto elsewhere). These @font-face rules
+   map the named families to their LOCALLY INSTALLED copies via local() only —
+   no url(), so nothing is downloaded and nothing is substituted. They simply
+   declare the system faces the tokens reference. On platforms without SF, the
+   --font-ui / --font-mono fallback stacks take over automatically. */
+
+@font-face {
+  font-family: "SF Pro Text";
+  src: local("SF Pro Text"), local("SFProText-Regular"), local(".SFNSText");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "SF Mono";
+  src: local("SF Mono"), local("SFMono-Regular"), local(".SFNSMono");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}

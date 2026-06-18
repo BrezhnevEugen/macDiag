@@ -1,0 +1,409 @@
+/* macDiag Modern — theming layer for the modernized UI kit.
+   Re-skins the design-system tokens across two axes:
+     [data-theme] : "dark" (default) | "light"
+     [data-dir]   : "cockpit" (premium / MBUX) | "workshop" (engineering)
+   Because the DS components read the same semantic var names (--bg, --panel,
+   --txt, --accent, --r-card …), overriding them here re-skins everything.
+   Scope everything under #mac so it never leaks into the DS-tab cards. */
+
+#mac {
+  /* shared modern type rhythm */
+  --font-ui: "Inter", -apple-system, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-display: "Inter", -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --shell-bg: var(--bg);
+  --elev: none;
+  --elev-lg: none;
+  color: var(--txt);
+  background: var(--shell-bg);
+  transition: background .25s ease, color .25s ease;
+}
+
+/* ============================================================= THEME: DARK */
+#mac[data-theme="dark"] {
+  --bg:        #0a0e14;
+  --shell-bg:  radial-gradient(1200px 600px at 80% -10%, #15203100 0%, #0a0e14 60%), #0a0e14;
+  --panel:     #121821;
+  --panel-2:   #1a212c;
+  --panel-glass: rgba(26, 33, 44, .72);
+  --line:      #252d39;
+  --line-2:    #1b222c;
+  --txt:       #eef3f9;
+  --txt-2:     #aab4c2;
+  --muted:     #7b8593;
+  --ok:        #3fcf6a;  --danger: #ff5d57;  --warn: #f0b429;
+  --ok-surface:#10241a; --ok-border:#1f5234;
+  --danger-surface:#2a1315; --danger-border:#5a2326;
+  --warn-surface:#2a2110; --warn-border:#5a4717;
+  --uds-surface:#10243d; --kwp-surface:#2c2410;
+  --on-accent: #ffffff;
+}
+
+/* ============================================================ THEME: LIGHT */
+#mac[data-theme="light"] {
+  --bg:        #eef1f6;
+  --shell-bg:  radial-gradient(1200px 600px at 80% -10%, #dfe6f200 0%, #eef1f6 60%), #eef1f6;
+  --panel:     #ffffff;
+  --panel-2:   #f3f6fa;
+  --panel-glass: rgba(255, 255, 255, .72);
+  --line:      #dde3ec;
+  --line-2:    #e9edf3;
+  --txt:       #0c1420;
+  --txt-2:     #46566b;
+  --muted:     #76828f;
+  --ok:        #1f9d4d;  --danger: #df2f29;  --warn: #b9810a;
+  --ok-surface:#e4f6ea; --ok-border:#a9ddb9;
+  --danger-surface:#fdeae9; --danger-border:#f2bdba;
+  --warn-surface:#fbf2db; --warn-border:#ead6a0;
+  --uds-surface:#e6f0fd; --kwp-surface:#faf1da;
+  --on-accent: #ffffff;
+  --elev:    0 1px 2px rgba(16,24,40,.06), 0 4px 14px rgba(16,24,40,.06);
+  --elev-lg: 0 8px 30px rgba(16,24,40,.12);
+}
+
+/* ========================================================= DIR: COCKPIT */
+/* Premium, glassy, generous radii, vivid signature blue. */
+#mac[data-dir="cockpit"] {
+  --accent:   #2f7ff5;
+  --accent-2: #62a0ff;
+  --accent-grad: linear-gradient(135deg, #2f7ff5, #5b9dff);
+  --r-card: 18px; --r-tile: 16px; --r-ctrl: 12px; --r-pill: 24px; --r-chip: 16px; --r-code: 8px;
+  --pad-card: 18px 20px;
+  --kv-weight: 600;
+  --kv-size: 30px;
+  --nav-radius: 14px;
+}
+#mac[data-dir="cockpit"][data-theme="dark"] {
+  --panel:     #131a24;
+  --card-grad: linear-gradient(160deg, rgba(47,127,245,.08), rgba(19,26,36,0) 55%);
+  --elev:    0 1px 0 rgba(255,255,255,.03) inset, 0 10px 30px rgba(0,0,0,.35);
+  --elev-lg: 0 20px 60px rgba(0,0,0,.5);
+}
+#mac[data-dir="cockpit"][data-theme="light"] {
+  --card-grad: linear-gradient(160deg, rgba(47,127,245,.05), rgba(255,255,255,0) 55%);
+}
+
+/* ======================================================== DIR: WORKSHOP */
+/* Engineering, high-contrast, tighter corners, structured, mono-forward. */
+#mac[data-dir="workshop"] {
+  --accent:   #1f6feb;
+  --accent-2: #388bfd;
+  --accent-grad: #1f6feb;
+  --r-card: 8px; --r-tile: 7px; --r-ctrl: 7px; --r-pill: 7px; --r-chip: 7px; --r-code: 5px;
+  --pad-card: 14px 16px;
+  --kv-weight: 600;
+  --kv-size: 26px;
+  --nav-radius: 7px;
+  --card-grad: none;
+}
+#mac[data-dir="workshop"][data-theme="dark"] {
+  --elev:    none;
+  --elev-lg: 0 16px 48px rgba(0,0,0,.55);
+}
+
+/* ============================================================ SHELL LAYOUT */
+#mac { display: flex; min-height: 100vh; }
+#mac * { box-sizing: border-box; }
+#mac button { font-family: inherit; }
+
+/* ---- sidebar ---- */
+.mac-side { flex: none; width: 256px; padding: 16px; }
+#mac[data-dir="workshop"] .mac-side { padding: 0; }
+.mac-side-inner {
+  position: sticky; top: 16px; height: calc(100vh - 32px);
+  display: flex; flex-direction: column; gap: 22px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--nav-radius); padding: 20px 16px; box-shadow: var(--elev);
+}
+#mac[data-dir="workshop"] .mac-side-inner {
+  top: 0; height: 100vh; border-radius: 0; border-width: 0 1px 0 0;
+  box-shadow: none; padding: 20px 14px;
+}
+.mac-brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px; }
+.mac-logo {
+  width: 38px; height: 38px; display: grid; place-items: center; flex: none;
+  border-radius: calc(var(--nav-radius) - 3px); color: var(--on-accent);
+  background: var(--accent-grad, var(--accent));
+}
+#mac[data-dir="workshop"] .mac-logo { background: var(--accent); border-radius: 6px; }
+.mac-wordmark { display: block; font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: -.2px; }
+.mac-tagline { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+.mac-nav { display: flex; flex-direction: column; gap: 3px; }
+.mac-navitem {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px; border: none; background: transparent; cursor: pointer;
+  color: var(--txt-2); font-size: 14px; font-weight: 500; text-align: left;
+  border-radius: calc(var(--nav-radius) - 4px); transition: background .15s, color .15s;
+}
+.mac-navitem:hover { background: var(--panel-2); color: var(--txt); }
+.mac-navitem.active { color: var(--on-accent); background: var(--accent-grad, var(--accent)); }
+#mac[data-dir="workshop"] .mac-navitem { border-radius: 6px; }
+#mac[data-dir="workshop"] .mac-navitem.active {
+  background: var(--uds-surface); color: var(--accent-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.mac-navbadge {
+  margin-left: auto; font-size: 11px; font-weight: 600; min-width: 20px; text-align: center;
+  padding: 1px 6px; border-radius: 10px; background: var(--danger); color: #fff;
+}
+.mac-navitem.active .mac-navbadge { background: rgba(255,255,255,.25); }
+#mac[data-dir="workshop"] .mac-navitem.active .mac-navbadge { background: var(--danger); }
+
+.mac-side-foot { margin-top: auto; }
+.mac-conn-card {
+  display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+  border-radius: calc(var(--nav-radius) - 4px); background: var(--panel-2); border: 1px solid var(--line-2);
+}
+.mac-statusdot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.mac-statusdot.on { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+.mac-statusdot.off { background: var(--muted); }
+.mac-conn-text { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+.mac-conn-text b { font-size: 13px; font-weight: 600; }
+.mac-conn-text small { font-size: 11px; color: var(--muted); }
+
+/* ---- main column ---- */
+.mac-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mac-appbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 16px;
+  padding: 16px 28px; backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border-bottom: 1px solid var(--line-2);
+}
+.mac-titlewrap { display: flex; flex-direction: column; min-width: 0; }
+.mac-title { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -.3px; }
+.mac-subtitle { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+.mac-appbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.mac-segctl { height: 40px; box-sizing: border-box; display: inline-flex; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-ctrl); padding: 3px; }
+.mac-segctl button {
+  height: 100%; border: none; background: transparent; cursor: pointer; color: var(--muted);
+  font-size: 12.5px; font-weight: 600; padding: 0 13px; border-radius: calc(var(--r-ctrl) - 4px);
+  transition: background .15s, color .15s;
+}
+.mac-segctl button.on { background: var(--panel); color: var(--txt); box-shadow: var(--elev); }
+#mac[data-theme="dark"] .mac-segctl button.on { background: var(--accent); color: var(--on-accent); }
+
+.mac-iconbtn {
+  width: 40px; height: 40px; display: grid; place-items: center; flex: none; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--txt-2);
+  border-radius: var(--r-ctrl); transition: background .15s, color .15s;
+}
+.mac-iconbtn:hover { background: var(--panel-2); color: var(--txt); }
+.mac-menu { display: none; }
+
+.mac-connbtn {
+  height: 40px; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  border: 1px solid transparent; background: var(--accent-grad, var(--accent)); color: var(--on-accent);
+  font-size: 13.5px; font-weight: 600; padding: 0 16px; border-radius: var(--r-ctrl);
+  box-shadow: var(--elev); transition: filter .15s, background .15s;
+}
+.mac-connbtn:hover { filter: brightness(1.06); }
+.mac-connbtn:active { transform: translateY(.5px); }
+.mac-connbtn.ghost { background: transparent; border-color: var(--line); color: var(--txt-2); box-shadow: none; }
+.mac-connbtn:disabled { opacity: .65; cursor: default; }
+
+.mac-content { padding: 24px 28px 48px; }
+
+.mac-spin {
+  width: 15px; height: 15px; border-radius: 50%; display: inline-block;
+  border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent); border-top-color: var(--on-accent);
+  animation: mac-spin .6s linear infinite;
+}
+
+/* ---- drawer scrim (mobile) ---- */
+.mac-scrim { display: none; }
+
+@media (max-width: 880px) {
+  .mac-side {
+    position: fixed; inset: 0 auto 0 0; z-index: 60; width: 264px; padding: 0;
+    transform: translateX(-100%); transition: transform .25s ease;
+  }
+  .mac-side.open { transform: none; }
+  .mac-side-inner { top: 0; height: 100vh; border-radius: 0; border-width: 0 1px 0 0; box-shadow: var(--elev-lg); }
+  .mac-scrim { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .mac-scrim.show { opacity: 1; pointer-events: auto; }
+  .mac-menu { display: grid; }
+  .mac-appbar { padding: 12px 16px; }
+  .mac-content { padding: 18px 16px 40px; }
+  .mac-segctl button { padding: 6px 10px; }
+  .mac-connbtn-label { display: none; }
+  .mac-connbtn { padding: 9px 12px; }
+}
+@media (max-width: 560px) {
+  .mac-title { font-size: 18px; }
+  .mac-subtitle { display: none; }
+}
+
+/* ============================================================ CONTENT BITS */
+.mac-section { margin-bottom: 28px; }
+.mac-section:last-child { margin-bottom: 0; }
+.mac-sec-head { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+.mac-sec-head h2 { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: .2px; }
+.mac-sec-head .mac-sec-rule { flex: 1; height: 1px; background: var(--line-2); }
+.mac-sec-head .mac-sec-meta { font-size: 12px; color: var(--muted); }
+
+.mac-panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: var(--pad-card); box-shadow: var(--elev);
+  background-image: var(--card-grad);
+}
+
+.mac-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.mac-metric {
+  position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: 18px 18px 16px; box-shadow: var(--elev);
+  background-image: var(--card-grad); overflow: hidden;
+}
+.mac-metric-top { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.mac-metric-ic {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; margin-left: auto;
+  background: var(--uds-surface); color: var(--accent-2);
+}
+#mac[data-dir="workshop"] .mac-metric-ic { border-radius: 6px; }
+.mac-metric-val { font-family: var(--font-display); font-weight: var(--kv-weight); font-size: var(--kv-size); letter-spacing: -.5px; margin-top: 10px; line-height: 1; }
+.mac-metric-val small { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 3px; letter-spacing: 0; }
+.mac-metric-sub { font-size: 12px; color: var(--muted); margin-top: 7px; }
+
+.mac-ecu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; }
+.mac-ecu {
+  display: flex; flex-direction: column; gap: 9px; cursor: pointer; text-align: left; color: var(--txt);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-tile);
+  padding: 14px 15px; box-shadow: var(--elev); transition: border-color .15s, transform .12s;
+}
+.mac-ecu:hover { border-color: var(--accent); transform: translateY(-2px); }
+.mac-ecu.off { opacity: .55; cursor: default; }
+.mac-ecu.off:hover { border-color: var(--line); transform: none; }
+.mac-ecu-top { display: flex; align-items: center; gap: 9px; }
+.mac-ecu-name { font-weight: 600; font-size: 14px; }
+.mac-ecu-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.mac-proto { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase; padding: 2px 7px; border-radius: var(--r-code); }
+.mac-proto.uds { background: var(--uds-surface); color: var(--accent-2); }
+.mac-proto.kwp { background: var(--kwp-surface); color: var(--warn); }
+.mac-faults { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-surface); border: 1px solid var(--warn-border); padding: 1px 8px; border-radius: 20px; }
+.mac-statusdot.sm { width: 8px; height: 8px; }
+
+/* ECU functional groups (DAS-style) */
+.mac-ecu-group { margin-bottom: 22px; }
+.mac-ecu-group:last-child { margin-bottom: 0; }
+.mac-ecu-grouphead { display: flex; align-items: center; gap: 10px; margin: 0 0 11px; }
+.mac-ecu-grouphead .gi { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--uds-surface); color: var(--accent-2); }
+#mac[data-dir="workshop"] .mac-ecu-grouphead .gi { border-radius: 6px; }
+.mac-ecu-grouphead h3 { margin: 0; font-family: var(--font-display); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.mac-ecu-grouphead .gc { font-size: 12px; color: var(--muted); }
+.mac-ecu-grouphead .grule { flex: 1; height: 1px; background: var(--line-2); }
+
+/* hex compare editor */
+.mac-hex-bar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.mac-hex-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 820px) { .mac-hex-grid { grid-template-columns: 1fr; } }
+.mac-hex-pane { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--elev); overflow: hidden; }
+.mac-hex-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line-2); background: var(--panel-2); }
+.mac-hex-head code { font-size: 12px; color: var(--txt); overflow-wrap: anywhere; }
+.mac-hex-head .tag { font-size: 11px; font-weight: 700; color: var(--on-accent); background: var(--accent); border-radius: var(--r-code); padding: 1px 7px; flex: none; }
+.mac-hex-body { overflow: auto; max-height: 420px; padding: 10px 8px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+.mac-hex-row { display: flex; gap: 12px; white-space: nowrap; }
+.mac-hex-off { color: var(--muted); flex: none; }
+.mac-hex-bytes { color: var(--txt-2); }
+.mac-hex-bytes b { font-weight: 400; padding: 0 1px; }
+.mac-hex-bytes b.df { background: var(--danger-surface); color: var(--danger); border-radius: 3px; font-weight: 600; }
+.mac-hex-ascii { color: var(--muted); flex: none; }
+.mac-hex-ascii b { font-weight: 400; }
+.mac-hex-ascii b.df { color: var(--danger); }
+.mac-diffcount { font-size: 12.5px; color: var(--muted); }
+.mac-diffcount b { color: var(--danger); }
+
+/* CFF viewer */
+.mac-cff-hdr { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.mac-cff-hdr .mac-mini { flex: 1 1 130px; }
+.mac-cff-map { display: flex; height: 30px; border-radius: var(--r-code); overflow: hidden; border: 1px solid var(--line); margin: 4px 0 14px; }
+.mac-cff-map > div { display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 600; color: var(--on-accent); white-space: nowrap; overflow: hidden; }
+.mac-cff-seg-app  { background: var(--accent); }
+.mac-cff-seg-par  { background: var(--ok); }
+.mac-cff-seg-boot { background: var(--warn); }
+.mac-seg-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; vertical-align: 1px; margin-right: 7px; }
+
+.mac-gauge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.mac-gauge { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-tile); padding: 14px 15px; box-shadow: var(--elev); }
+.mac-gauge-lbl { font-size: 12.5px; color: var(--txt-2); line-height: 1.35; min-height: 34px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mac-gauge-val { font-family: var(--font-display); font-weight: 600; font-size: 25px; letter-spacing: -.4px; margin-top: 8px; }
+.mac-gauge-val small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 3px; }
+.mac-gauge-bar { height: 5px; border-radius: 4px; background: var(--panel-2); margin-top: 10px; overflow: hidden; }
+.mac-gauge-bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent-grad, var(--accent)); }
+.mac-gauge-sub { font-size: 11px; color: var(--muted); margin-top: 7px; }
+
+/* toolbar / fields / table */
+.mac-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+.mac-tb-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+.mac-field { display: flex; flex-direction: column; gap: 6px; }
+.mac-field > span { font-size: 12px; color: var(--muted); font-weight: 500; }
+.mac-input, .mac-select {
+  height: 40px; box-sizing: border-box;
+  background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+  padding: 0 12px; border-radius: var(--r-ctrl); font-size: 13.5px; font-family: inherit; box-shadow: var(--elev);
+}
+.mac-input:focus, .mac-select:focus { outline: none; border-color: var(--accent); }
+.mac-input::placeholder { color: var(--muted); }
+.mac-btn {
+  height: 40px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-size: 13.5px; font-weight: 600;
+  padding: 0 16px; border-radius: var(--r-ctrl); border: 1px solid transparent;
+  background: var(--accent-grad, var(--accent)); color: var(--on-accent); box-shadow: var(--elev);
+}
+.mac-btn:hover { filter: brightness(1.06); }
+.mac-btn:disabled { opacity: .5; cursor: default; filter: none; }
+.mac-btn.ghost { background: var(--panel); border-color: var(--line); color: var(--txt-2); }
+.mac-btn.danger { background: var(--danger); color: #fff; }
+
+.mac-table-wrap { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--elev); overflow: hidden; }
+.mac-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.mac-table th { text-align: left; padding: 12px 16px; background: var(--panel-2); color: var(--muted);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--line); }
+.mac-table td { padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
+.mac-table tr:last-child td { border-bottom: none; }
+.mac-table tbody tr.clickable { cursor: pointer; }
+.mac-table tbody tr.clickable:hover { background: var(--panel-2); }
+.mac-table code { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent-2); }
+.mac-sevdot { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+.mac-sevdot i { width: 8px; height: 8px; border-radius: 50%; }
+
+.mac-banner { display: flex; gap: 11px; align-items: flex-start; padding: 13px 16px; border-radius: var(--r-card);
+  font-size: 13.5px; line-height: 1.45; margin-bottom: 18px; border: 1px solid var(--warn-border);
+  background: var(--warn-surface); color: var(--warn); }
+.mac-banner.ok { border-color: var(--ok-border); background: var(--ok-surface); color: var(--ok); }
+.mac-banner svg { flex: none; margin-top: 1px; }
+
+.mac-empty { color: var(--muted); font-size: 13.5px; padding: 8px 2px; }
+.mac-chip { font-family: var(--font-mono); font-size: 11px; color: var(--txt-2); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--r-code); padding: 3px 9px; white-space: nowrap; }
+
+.mac-veh { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.mac-veh-art { width: 132px; height: 84px; flex: none; border-radius: var(--r-tile); display: grid; place-items: center;
+  color: var(--accent-2); background: var(--uds-surface); border: 1px solid var(--line); }
+.mac-veh-info { min-width: 0; }
+.mac-veh-info .vmodel { font-family: var(--font-display); font-weight: 600; font-size: 16px; }
+.mac-veh-info .vvin { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.mac-veh-info .vrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* DTC detail card */
+.mac-dtc-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+.mac-dtc-code { font-family: var(--font-mono); font-weight: 600; font-size: 26px; letter-spacing: .5px; color: var(--accent-2); }
+.mac-dtc-actions { margin-left: auto; display: flex; gap: 8px; }
+.mac-mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.mac-mini { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-tile); padding: 11px 13px; }
+.mac-mini .l { font-size: 11.5px; color: var(--muted); }
+.mac-mini .v { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin-top: 4px; }
+.mac-mini .v small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+.mac-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.mac-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--txt-2); line-height: 1.45; }
+.mac-list.steps li { counter-increment: s; }
+.mac-list li .mk { flex: none; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center;
+  font-size: 11px; font-weight: 600; background: var(--uds-surface); color: var(--accent-2); margin-top: 1px; }
+.mac-list.causes li .mk { border-radius: 50%; width: 7px; height: 7px; margin: 8px 0 0; background: var(--accent); }
+.mac-subcard h3 { margin: 0 0 12px; font-family: var(--font-display); font-size: 13.5px; font-weight: 600; color: var(--txt); }
+.mac-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+@media (max-width: 720px) { .mac-detail-grid { grid-template-columns: 1fr; } }

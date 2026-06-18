@@ -1,0 +1,48 @@
+/* macDiag — spacing, radius, shadow & motion tokens
+   Compact, data-dense rhythm. Radii are generous on cards, tighter on inline chips. */
+:root {
+  /* ---- spacing scale ---- */
+  --sp-1:  2px;
+  --sp-2:  4px;
+  --sp-3:  6px;
+  --sp-4:  8px;
+  --sp-5:  10px;
+  --sp-6:  12px;
+  --sp-7:  14px;
+  --sp-8:  16px;
+  --sp-9:  18px;
+  --sp-10: 20px;
+  --sp-12: 24px;
+
+  /* ---- common paddings ---- */
+  --pad-card:    14px 16px;   /* card interior */
+  --pad-control: 8px 14px;    /* button / select / input */
+  --pad-cell:    9px 10px;    /* table cell */
+  --pad-page:    18px 24px;   /* main content */
+
+  /* ---- radii ---- */
+  --r-pill:  20px;   /* pills, badges, capsules */
+  --r-chip:  14px;   /* chips, fault counters */
+  --r-card:  12px;   /* cards */
+  --r-tile:  10px;   /* metrics, gauges, ecu cards */
+  --r-ctrl:  8px;    /* buttons, inputs, selects, segmented */
+  --r-code:  6px;    /* protocol pills, inline code, load cells */
+  --r-dot:   50%;    /* status dots, spinner */
+
+  /* ---- borders ---- */
+  --bw: 1px;         /* macDiag uses a uniform 1px hairline everywhere */
+
+  /* ---- shadows ---- */
+  /* macDiag is a flat, border-defined UI — elevation comes from surface color
+     + hairline, not drop shadows. The only floating layers cast a soft shadow. */
+  --shadow-none:    none;
+  --shadow-overlay: 0 12px 32px rgba(0,0,0,.5);   /* lightbox / modal panel */
+  --shadow-toast:   0 8px 24px rgba(0,0,0,.45);   /* toast */
+
+  /* ---- motion ---- */
+  --ease:        linear;          /* @kind other */
+  --ease-ui:     ease;            /* @kind other */
+  --dur-fast:    .2s;             /* @kind other */
+  --dur-spin:    .6s;             /* @kind other */
+  --press-scale: .985;            /* @kind other */
+}
