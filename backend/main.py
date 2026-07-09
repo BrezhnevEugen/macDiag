@@ -16,6 +16,7 @@ import asyncio
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -35,9 +36,6 @@ DiagError = (UDSError, KWPError)
 
 MODE = os.environ.get("MACDIAG_MODE", "sim")  # 'sim' or 'hw'
 DRIVER = os.environ.get("MACDIAG_DRIVER")
-
-app = FastAPI(title="macDiag", version="0.1.0")
-
 
 # ---------------------------------------------------------------------------
 # Connection state (single active session - this is a bench tool, not a server)
@@ -239,6 +237,21 @@ class Session:
 session = Session()
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Close the adapter cleanly when FastAPI stops."""
+    try:
+        yield
+    finally:
+        try:
+            session.disconnect()
+        except Exception:  # noqa: BLE001 - shutdown must not mask app exit
+            pass
+
+
+app = FastAPI(title="macDiag", version="0.1.0", lifespan=lifespan)
+
+
 class TranslationUpdate(BaseModel):
     localization_key: str
     lang: str = "ru"
@@ -324,18 +337,6 @@ def _module_client(module_id: str | None):
         raise HTTPException(status_code=404, detail=f"unknown module: {module_id}")
     # 3. default: engine ECU / generic OBD physical address (UDS)
     return session.client(OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE, "uds")
-
-
-# ---------------------------------------------------------------------------
-# REST API
-# ---------------------------------------------------------------------------
-@app.on_event("shutdown")
-def _cleanup():
-    # Close the adapter cleanly on Ctrl+C so the channel isn't left in use.
-    try:
-        session.disconnect()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 @app.get("/api/status")
