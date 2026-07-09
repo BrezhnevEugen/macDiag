@@ -521,7 +521,13 @@ function Dtc({ connected, initialModule }) {
   async function clear() {
     if (!mod) return;
     setLoading(true);
-    try { await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`); } catch { return read(mod); }
+    try {
+      await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`);
+    } catch (e) {
+      setData({ status: "error", detail: "Сброс не выполнен: " + String(e.message || e), dtcs: [] });
+      setLoading(false);
+      return;
+    }
     await read(mod);
   }
 

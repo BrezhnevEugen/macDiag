@@ -124,6 +124,26 @@ def test_coding_write_validates_hex(client):
         "malformed hex must be a client error, not a 5xx")
 
 
+def test_hardware_writes_require_explicit_server_opt_in(client, monkeypatch):
+    monkeypatch.setattr(main, "MODE", "hw")
+    monkeypatch.delenv("MACDIAG_ENABLE_WRITES", raising=False)
+
+    status = client.get("/api/status").json()
+    assert status["writes"]["enabled"] is False
+    assert status["writes"]["environment"] == "MACDIAG_ENABLE_WRITES"
+
+    dtc = client.post("/api/dtc/clear")
+    apply = client.post("/api/coding/apply", json={"domain": "any", "coding_hex": "AABB"})
+    coding = client.post("/api/coding/write", json={"did": 0x0110, "value_hex": "AABB"})
+
+    assert dtc.status_code == 403
+    assert apply.status_code == 403
+    assert coding.status_code == 403
+    assert dtc.json()["operation"] == "dtc_clear"
+    assert apply.json()["operation"] == "coding_apply"
+    assert coding.json()["operation"] == "coding_write"
+
+
 def test_ws_live_stream_and_pid_selection(client):
     client.post("/api/connect")
     with client.websocket_connect("/ws/live") as ws:

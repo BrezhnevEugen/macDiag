@@ -10,6 +10,9 @@ export async function apiPost(path, body) {
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${path} → ${r.status}`);
+  if (!r.ok) {
+    const data = await r.json().catch(() => null);
+    throw new Error(data?.error || `${path} → ${r.status}`);
+  }
   return r.json();
 }

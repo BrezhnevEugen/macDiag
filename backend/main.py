@@ -270,6 +270,39 @@ def _parse_hex(s: str, field: str = "value") -> bytes:
                             detail=f"invalid {field}: not a hex string")
 
 
+def _write_safety() -> dict:
+    """Expose the server-side gate for ECU-changing operations.
+
+    Simulator writes stay enabled for demos and tests. A live vehicle requires
+    an explicit process-level opt-in, so a browser click alone cannot alter an
+    ECU when the backend is running in hardware mode.
+    """
+    enabled = MODE == "sim" or os.environ.get("MACDIAG_ENABLE_WRITES", "").lower() in {
+        "1", "true", "yes",
+    }
+    return {
+        "enabled": enabled,
+        "mode": MODE,
+        "environment": "MACDIAG_ENABLE_WRITES",
+        "operations": ["dtc_clear", "coding_apply", "coding_write"],
+    }
+
+
+def _write_guard(operation: str):
+    safety = _write_safety()
+    if safety["enabled"]:
+        return None
+    return JSONResponse(
+        {
+            "error": "операция записи заблокирована в режиме реального адаптера",
+            "operation": operation,
+            "hint": "перезапусти backend с MACDIAG_ENABLE_WRITES=1 после проверки VIN и питания",
+            "writes": safety,
+        },
+        status_code=403,
+    )
+
+
 def _module_client(module_id: str | None):
     """Resolve a client for any module: a profile alias, OR any ECU name
     from the unified database (any chassis), OR fall back to generic OBD."""
@@ -313,7 +346,7 @@ def status():
             "voltage": session.voltage() if session.connected else None,
             "adapter": state["adapter"], "adapter_state": state["state"],
             "channel": state["channel"], "last_error": state["last_error"],
-            "profile": profile_info()}
+            "profile": profile_info(), "writes": _write_safety()}
 
 
 @app.get("/api/log")
@@ -1005,6 +1038,9 @@ def read_dtc(module: str | None = None, lang: str = "ru"):
 
 @app.post("/api/dtc/clear")
 def clear_dtc(module: str | None = None):
+    blocked = _write_guard("dtc_clear")
+    if blocked:
+        return blocked
     try:
         client = _module_client(module)
         client.clear_dtcs()
@@ -1261,6 +1297,9 @@ class ApplyReq(BaseModel):
 @app.post("/api/coding/apply")
 def coding_apply(req: ApplyReq):
     """Write an edited coding string back to the ECU (after Security Access)."""
+    blocked = _write_guard("coding_apply")
+    if blocked:
+        return blocked
     from .mb import varcoding
     ecu = _ecu_name_for(req.module) or req.module
     meta = varcoding.domain_meta(ecu, req.domain)
@@ -1351,6 +1390,9 @@ def coding_write(req: WriteReq):
     Performs Security Access (0x27) first when the module requires it. Use with
     care: wrong values can disable an ECU. Read and save the current value first.
     """
+    blocked = _write_guard("coding_write")
+    if blocked:
+        return blocked
     value = _parse_hex(req.value_hex, "value_hex")      # validate before touching the ECU
     try:
         client = _module_client(req.module)
