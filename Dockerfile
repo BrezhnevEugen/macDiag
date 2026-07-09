@@ -1,3 +1,14 @@
+# Build the same React client that is used during development. The final image
+# contains only its static output, not Node.js or node_modules.
+FROM node:22-alpine AS web-build
+
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+
 # macDiag - MB W221/X164 OBD-II web tool
 # Image carries ONLY code + a small seed dataset. The real data (CBF library,
 # ecu_db.sqlite, unlock_db.json) lives in the mounted /data volume so it can be
@@ -12,8 +23,8 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Application code
 COPY backend/ /app/backend/
-COPY frontend/ /app/frontend/
 COPY tools/ /app/tools/
+COPY --from=web-build /web/dist /app/web/dist
 
 # Seed dataset (used to populate an empty /data volume on first run)
 COPY docker/seed/ /app/seed/

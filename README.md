@@ -16,7 +16,7 @@ Openport 2.0 — это устройство **SAE J2534 PassThru**, а не ELM
 браузер по HTTP/WebSocket. Это и делает backend на Python (FastAPI).
 
 ```
-Браузер (HTML/JS)  ──HTTP/WS──►  FastAPI backend  ──J2534 (ctypes)──►  Openport 2.0  ──CAN──►  авто
+Браузер (React SPA)  ──HTTP/WS──►  FastAPI backend  ──J2534 (ctypes)──►  Openport 2.0  ──CAN──►  авто
 ```
 
 ## Архитектура
@@ -31,9 +31,10 @@ backend/
     modules.py       карта модулей W221/X164 (CAN TX/RX, протокол)
     pids.py          стандартные OBD PID с декодерами
     dtc.py           описания кодов ошибок
-frontend/
-  index.html         SPA: вкладки Live / DTC / Модули / Кодирование
-  app.js, style.css
+web/
+  src/               React SPA: Live / DTC / Модули / Кодирование / Flash
+  package.json       Vite build и lint
+  dist/              production-сборка; отдаётся FastAPI
 ```
 
 ## Docker (рекомендуется)
@@ -126,9 +127,15 @@ docker compose exec macdiag python tools/fetch_unlock_db.py
 ```bash
 cd macDiag
 pip install -r backend/requirements.txt
+# production UI, который затем отдаёт FastAPI на :8000
+(cd web && npm ci && npm run build)
 python -m uvicorn backend.main:app --port 8000
 # открыть http://localhost:8000
 ```
+
+Для разработки UI запускай Vite отдельно: `cd web && npm run dev`, затем открой
+`http://localhost:5173`. Vite проксирует `/api` и `/ws` к FastAPI на `:8000`.
+Docker сам собирает этот же React-клиент; Node.js в финальный образ не попадает.
 
 По умолчанию `MACDIAG_MODE=sim` — backend отвечает правдоподобными данными
 (VIN, RPM, температуры, ошибки двигателя P0170/P0300) без подключения к авто.

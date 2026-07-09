@@ -6,6 +6,11 @@ venv/
 .DS_Store
 .env
 data/
+driver/
+frontend/
+web/node_modules/
+web/dist/
+macDiag Design System/
 *.md
 # keep the seed dataset; exclude any stray large libraries
 **/*.vsb

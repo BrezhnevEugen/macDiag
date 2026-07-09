@@ -1418,8 +1418,12 @@ async def ws_live(ws: WebSocket):
 
 
 # ---------------------------------------------------------------------------
-# Static frontend
+# Static frontend. Production builds the React client in Docker; the legacy
+# client remains a local fallback so API-only checkouts still open a UI.
 # ---------------------------------------------------------------------------
-FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+ROOT = Path(__file__).resolve().parent.parent
+REACT_FRONTEND = ROOT / "web" / "dist"
+LEGACY_FRONTEND = ROOT / "frontend"
+FRONTEND = REACT_FRONTEND if (REACT_FRONTEND / "index.html").is_file() else LEGACY_FRONTEND
 if FRONTEND.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="frontend")
