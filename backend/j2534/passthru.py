@@ -28,6 +28,7 @@ import platform
 import threading
 import time
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 # ---- diagnostic trace log (ring buffer) ------------------------------------
 # Every request/response and every J2534 error is appended here so the UI can
@@ -80,6 +81,85 @@ OBD_PHYS_RX_BASE = 0x7E8   # ECU 0 response
 class PassThruMessage:
     rx_id: int
     data: bytes
+
+
+@dataclass(frozen=True)
+class AdapterCapabilities:
+    """Stable, UI-safe description of a diagnostic transport.
+
+    This deliberately describes what macDiag can ask the transport to do, not
+    what every possible ECU supports. New backends (for example SocketCAN) only
+    need to implement :class:`DiagnosticTransport` and return this shape.
+    """
+
+    protocols: tuple[str, ...]
+    reads_battery_voltage: bool
+    supports_flow_control_filter: bool
+    supports_29bit_can: bool
+    requires_hardware: bool
+
+    def as_dict(self) -> dict:
+        return {
+            "protocols": list(self.protocols),
+            "reads_battery_voltage": self.reads_battery_voltage,
+            "supports_flow_control_filter": self.supports_flow_control_filter,
+            "supports_29bit_can": self.supports_29bit_can,
+            "requires_hardware": self.requires_hardware,
+        }
+
+
+def adapter_profile(mode: str, driver_path: str | None = None) -> dict:
+    """Return a transport profile without loading a driver or touching a car."""
+    if mode == "hw":
+        path = driver_path or _default_driver_path()
+        capabilities = AdapterCapabilities(
+            protocols=("CAN", "ISO15765", "ISO14230"),
+            reads_battery_voltage=True,
+            supports_flow_control_filter=True,
+            supports_29bit_can=True,
+            requires_hardware=True,
+        )
+        return {
+            "kind": "j2534",
+            "label": "SAE J2534 PassThru",
+            "driver": path,
+            "driver_configured": bool(path),
+            "driver_present": bool(path and os.path.exists(path)),
+            "capabilities": capabilities.as_dict(),
+        }
+    capabilities = AdapterCapabilities(
+        protocols=("CAN", "ISO15765", "ISO14230"),
+        reads_battery_voltage=True,
+        supports_flow_control_filter=True,
+        supports_29bit_can=True,
+        requires_hardware=False,
+    )
+    return {
+        "kind": "simulator",
+        "label": "macDiag simulator",
+        "driver": None,
+        "driver_configured": True,
+        "driver_present": True,
+        "capabilities": capabilities.as_dict(),
+    }
+
+
+@runtime_checkable
+class DiagnosticTransport(Protocol):
+    """Contract shared by physical and simulated diagnostic transports."""
+
+    def adapter_profile(self) -> dict: ...
+    def open(self) -> None: ...
+    def close(self) -> None: ...
+    def connect(self, protocol: int = ISO15765, baudrate: int = 500000,
+                flags: int = 0) -> int: ...
+    def disconnect(self, channel_id: int) -> None: ...
+    def set_filters(self, channel_id: int, rx_id: int, tx_id: int) -> int: ...
+    def write(self, channel_id: int, tx_id: int, data: bytes,
+              timeout_ms: int = 100) -> None: ...
+    def read(self, channel_id: int, timeout_ms: int = 200) -> PassThruMessage | None: ...
+    def read_vbatt(self, channel_id: int | None = None) -> float: ...
+    def read_version(self) -> dict: ...
 
 
 class PassThruError(Exception):
@@ -152,6 +232,9 @@ class J2534PassThru:
         # (filter + write + read loop) must not interleave with another.
         self.io_lock = threading.RLock()
         self.filter_owner: tuple | None = None   # (channel_id, rx_id, tx_id)
+
+    def adapter_profile(self) -> dict:
+        return adapter_profile("hw", self.driver_path)
 
     # -- ctypes prototypes -------------------------------------------------
     def _bind(self):
@@ -304,6 +387,14 @@ class J2534PassThru:
 # ---------------------------------------------------------------------------
 # Simulator backend (no hardware needed)
 # ---------------------------------------------------------------------------
+def _encode_dtc(code: str) -> tuple[int, int]:
+    """SAE J2012 2-byte encoding of a DTC string like 'P0300' -> (0x03, 0x00)."""
+    letter = {"P": 0, "C": 1, "B": 2, "U": 3}[code[0]]
+    b1 = (letter << 6) | (int(code[1]) << 4) | int(code[2], 16)
+    b2 = (int(code[3], 16) << 4) | int(code[4], 16)
+    return b1, b2
+
+
 class SimPassThru:
     """
     In-memory simulator. Answers UDS/OBD requests with believable W221/X164
@@ -311,15 +402,21 @@ class SimPassThru:
     """
 
     def __init__(self, *_args, **_kwargs):
+        from .car_profile import config
         self._open = False
         self._t0 = time.time()
         self._pending: list[PassThruMessage] = []
-        self._cleared = False
+        self._cleared: set[int] = set()   # tx ids whose DTCs were cleared this session
+        self._cur_tx: int | None = None   # ECU currently being addressed (set in write)
         self._seed: bytes | None = None
         self._unlocked = False
         self._coding: dict[int, bytes] = {}   # identifier -> stored coding blob
         self.io_lock = threading.RLock()      # same contract as J2534PassThru
         self.filter_owner: tuple | None = None
+        self._scenario = config()
+
+    def adapter_profile(self) -> dict:
+        return adapter_profile("sim")
 
     # -- lifecycle ---------------------------------------------------------
     def open(self):
@@ -353,6 +450,7 @@ class SimPassThru:
         rx_id = getattr(self, "_rx_id", None)
         if rx_id is None:
             rx_id = (tx_id + 8) if tx_id != OBD_FUNCTIONAL_TX else OBD_PHYS_RX_BASE
+        self._cur_tx = tx_id            # remember target ECU for per-ECU synthesis
         # captured real-car behaviour first (this vehicle's actual responses)
         from .car_profile import lookup
         matched, val = lookup(tx_id, data.hex())
@@ -381,12 +479,14 @@ class SimPassThru:
 
         # OBD mode 09 PID 02 - VIN
         if sid == 0x09 and len(req) >= 2 and req[1] == 0x02:
-            return bytes([0x49, 0x02, 0x01]) + b"4JGBF71E07A000001"
+            vin = self._identity().get("obd_vin", "")
+            return bytes([0x49, 0x02, 0x01]) + str(vin).encode()
 
         # MB readEcuIdentification 0x1A (0x90 = VIN)
         if sid == 0x1A and len(req) >= 2:
             if req[1] == 0x90:
-                return bytes([0x5A, 0x90]) + b"WDC1641541A123456"
+                vin = self._identity().get("mb_vin", "")
+                return bytes([0x5A, 0x90]) + str(vin).encode()
             return bytes([0x5A, req[1]]) + bytes(8)
         # MB readDataByLocalId 0x21 (e.g. 21E0 version)
         if sid == 0x21 and len(req) >= 2:
@@ -420,15 +520,16 @@ class SimPassThru:
         if sid == 0x19 or sid == 0x03:
             return self._read_dtcs(sid)
 
-        # MB 0x17 readDTC - synth a couple of faults so the DTC flow is testable
+        # MB 0x17 readDTC - per-ECU curated faults (status 0x28 = confirmed, pending)
         if sid == 0x17:
-            if getattr(self, "_cleared", False):
-                return bytes([0x57, 0x00])
-            return bytes([0x57, 0x02, 0x95, 0x35, 0x28, 0x55, 0x25, 0x28])
+            codes = self._demo_codes()
+            body = b"".join(bytes([*_encode_dtc(c), 0x28]) for c in codes)
+            return bytes([0x57, len(codes)]) + body
 
-        # UDS 0x14 / OBD 0x04 - clear DTCs
+        # UDS 0x14 / OBD 0x04 - clear DTCs (only for the addressed ECU)
         if sid == 0x14 or sid == 0x04:
-            self._cleared = True
+            if self._cur_tx is not None:
+                self._cleared.add(self._cur_tx)
             return bytes([sid + 0x40])
 
         # UDS 0x10 / KWP 0x10 - session control (enter session)
@@ -462,18 +563,21 @@ class SimPassThru:
                 self._coding[req[1]] = req[2:]                   # store by local id
                 return bytes([0x7B, req[1]])
 
-        # KWP 0x18 - ReadDTCByStatus
+        # KWP 0x18 - ReadDTCByStatus (status 0x08 = stored)
         if sid == 0x18:
-            if self._cleared:
-                return bytes([0x58, 0x00])
-            return bytes([0x58, 0x02, 0x95, 0x35, 0x08, 0x55, 0x25, 0x08])
+            codes = self._demo_codes()
+            body = b"".join(bytes([*_encode_dtc(c), 0x08]) for c in codes)
+            return bytes([0x58, len(codes)]) + body
 
         # KWP 0x21 - ReadDataByLocalIdentifier
         if sid == 0x21 and len(req) >= 2:
             lid = req[1]
             if lid in self._coding:                  # previously written coding
                 return bytes([0x61, lid]) + self._coding[lid]
-            local = {0x05: bytes([0x5A]), 0x0C: bytes([0x08, 0xCA])}
+            local = {
+                int(key, 16): bytes.fromhex(value)
+                for key, value in self._identity().get("local_ids", {}).items()
+            }
             if lid in local:
                 return bytes([0x61, lid]) + local[lid]
             # unknown id: return a zeroed coding blob (length the UI will pad/trim)
@@ -485,43 +589,44 @@ class SimPassThru:
     def _live_pid(self, pid: int) -> bytes | None:
         import math
         t = time.time() - self._t0
-        table = {
-            0x05: bytes([88 + int(8 * math.sin(t / 7)) + 40]),         # coolant temp +40 offset
-            0x0C: ((1500 + int(700 * (math.sin(t / 3) + 1))) * 4).to_bytes(2, "big"),  # RPM
-            0x0D: bytes([max(0, int(60 + 50 * math.sin(t / 11)))]),     # speed km/h
-            0x0F: bytes([30 + int(5 * math.sin(t / 13)) + 40]),         # intake air temp
-            0x11: bytes([int(20 + 15 * (math.sin(t / 5) + 1))]),        # throttle %
-            0x2F: bytes([int(70 + 25 * math.sin(t / 29))]),            # fuel level %
-            0x42: (13800 + int(400 * math.sin(t / 4))).to_bytes(2, "big"),  # control module voltage mV
-        }
-        return table.get(pid)
+        spec = self._scenario.get("live_pids", {}).get(f"{pid:02X}")
+        if not isinstance(spec, dict):
+            return None
+        value = int(spec.get("base", 0)) + int(
+            int(spec.get("amplitude", 0)) * math.sin(t / max(spec.get("period", 1), 0.001)),
+        )
+        value = max(int(spec.get("minimum", 0)), value)
+        width = int(spec.get("width", 1))
+        return value.to_bytes(width, "big", signed=False)
 
     def _read_did(self, did: int) -> bytes | None:
-        dids = {
-            0xF190: b"WDD2211711A123456",      # VIN
-            0xF195: b"02/14",                    # SW version
-            0xF18C: b"EZS-W221-REVE",            # serial
-            0xF187: b"A2215403345",              # MB part number
-        }
-        return dids.get(did)
+        value = self._identity().get("dids", {}).get(f"{did:04X}")
+        return str(value).encode() if value is not None else None
+
+    def _identity(self) -> dict:
+        identity = self._scenario.get("identity", {})
+        return identity if isinstance(identity, dict) else {}
+
+    def _demo_codes(self) -> list[str]:
+        """Profile DTCs for the currently addressed ECU (empty after clear)."""
+        if self._cur_tx in self._cleared:
+            return []
+        role = self._scenario.get("tx_roles", {}).get(str(self._cur_tx))
+        codes = self._scenario.get("demo_dtcs", {}).get(role, [])
+        return [str(code) for code in codes]
 
     def _read_dtcs(self, sid: int) -> bytes:
-        if self._cleared:
-            # no stored faults after a clear
-            return bytes([0x59, 0x02, 0xFF]) if sid == 0x19 else bytes([0x43, 0x00])
-        # Two believable W221 faults, SAE J2012 encoded:
-        #   B1535 -> 0x95 0x35 (seat/body module)
-        #   C1525 -> 0x55 0x25 (ESP)
+        codes = self._demo_codes()
         if sid == 0x19:
-            #  0x59 0x02 statusAvail  DTC(3) status  DTC(3) status
-            return bytes([0x59, 0x02, 0xFF,
-                          0x95, 0x35, 0x00, 0x08,
-                          0x55, 0x25, 0x00, 0x08])
+            #  0x59 0x02 statusAvail  [DTC(3) status]*   (low byte 0x00, status 0x08)
+            body = b"".join(bytes([*_encode_dtc(c), 0x00, 0x08]) for c in codes)
+            return bytes([0x59, 0x02, 0xFF]) + body
         # OBD mode 03: count + DTC pairs (2 bytes each)
-        return bytes([0x43, 0x02, 0x95, 0x35, 0x55, 0x25])
+        body = b"".join(bytes(_encode_dtc(c)) for c in codes)
+        return bytes([0x43, len(codes)]) + body
 
 
-def make_passthru(mode: str, driver_path: str | None = None):
+def make_passthru(mode: str, driver_path: str | None = None) -> DiagnosticTransport:
     """Factory: mode='sim' or mode='hw'."""
     if mode == "hw":
         return J2534PassThru(driver_path)

@@ -15,7 +15,7 @@ const PAGES = {
 };
 
 function ModernApp() {
-  const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+  const get = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
   const [theme, setTheme] = React.useState(() => get("mac.theme", "dark"));
   const [dir, setDir] = React.useState(() => get("mac.dir", "workshop"));
   const [lang, setLang] = React.useState(() => get("mac.lang", "ru"));
@@ -23,22 +23,27 @@ function ModernApp() {
   const [mode, setMode] = React.useState("sim");          // 'sim' (эмулятор) | 'hw' (адаптер)
   const [connected, setConnected] = React.useState(false);
   const [voltage, setVoltage] = React.useState(null);
+  const [adapter, setAdapter] = React.useState(null);
+  const [profile, setProfile] = React.useState(null);
+  const [profiles, setProfiles] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
   const [drawer, setDrawer] = React.useState(false);
   const [dtcModule, setDtcModule] = React.useState(null);
   const [err, setErr] = React.useState("");
 
-  React.useEffect(() => { try { localStorage.setItem("mac.theme", theme); } catch (e) {} }, [theme]);
-  React.useEffect(() => { try { localStorage.setItem("mac.dir", dir); } catch (e) {} }, [dir]);
-  React.useEffect(() => { try { localStorage.setItem("mac.lang", lang); } catch (e) {} }, [lang]);
+  React.useEffect(() => { try { localStorage.setItem("mac.theme", theme); } catch { return undefined; } }, [theme]);
+  React.useEffect(() => { try { localStorage.setItem("mac.dir", dir); } catch { return undefined; } }, [dir]);
+  React.useEffect(() => { try { localStorage.setItem("mac.lang", lang); } catch { return undefined; } }, [lang]);
   React.useEffect(() => { if (!err) return; const t = setTimeout(() => setErr(""), 6000); return () => clearTimeout(t); }, [err]);
 
-  const applyStatus = (s) => {
+  const applyStatus = React.useCallback((s) => {
     if (!s) return;
     if (s.mode) setMode(s.mode);
     setConnected(!!s.connected);
     setVoltage(s.voltage ?? null);
-  };
+    if ("adapter" in s) setAdapter(s.adapter ?? null);
+    if ("profile" in s) setProfile(s.profile ?? null);
+  }, []);
   // Parse the body even on a non-2xx response — these endpoints return a
   // structured {mode, connected, error} that we must reflect, not swallow.
   async function call(path) {
@@ -48,8 +53,17 @@ function ModernApp() {
       return { ok: r.ok, data };
     } catch (e) { return { ok: false, data: null, error: String(e) }; }
   }
-  async function refreshStatus() { try { applyStatus(await apiGet("/api/status")); } catch (e) {} }
-  React.useEffect(() => { refreshStatus(); }, []);
+  const refreshStatus = React.useCallback(async () => {
+    try { applyStatus(await apiGet("/api/status")); } catch { return undefined; }
+  }, [applyStatus]);
+  const refreshProfiles = React.useCallback(async () => {
+    try {
+      const data = await apiGet("/api/profiles");
+      setProfiles(data.profiles || []);
+      if (data.active) setProfile(data.active);
+    } catch { return undefined; }
+  }, []);
+  React.useEffect(() => { void refreshStatus(); void refreshProfiles(); }, [refreshStatus, refreshProfiles]);
 
   const NO_BACKEND = "Бэкенд недоступен — запущен ли uvicorn на :8000? (терминал 1)";
   const errFrom = (ok, data, error, fallback) =>
@@ -70,6 +84,30 @@ function ModernApp() {
     if (!ok || (data && data.error)) setErr(errFrom(ok, data, error, "ошибка подключения"));
     setBusy(false);
   }
+  async function selfTestAdapter() {
+    setBusy(true); setErr("");
+    try {
+      const { ok, data, error } = await call("/api/adapter/self-test");
+      applyStatus(data);
+      if (!ok || (data && data.error)) {
+        const message = errFrom(ok, data, error, "самотест адаптера не удался");
+        setErr(message);
+        throw new Error(message);
+      }
+      return data;
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function switchProfile(name) {
+    if (connected || busy || name === profile?.id) return;
+    setBusy(true); setErr("");
+    const { ok, data, error } = await call(`/api/profile?name=${encodeURIComponent(name)}`);
+    applyStatus(data);
+    if (data?.profiles) setProfiles(data.profiles);
+    if (!ok || (data && data.error)) setErr(errFrom(ok, data, error, "не удалось сменить профиль"));
+    setBusy(false);
+  }
   function openDtc(name) { setDtcModule(name); setTab("dtc"); }
 
   const page = PAGES[tab];
@@ -77,14 +115,16 @@ function ModernApp() {
   return (
     <div id="mac" data-theme={theme} data-dir={dir}>
       <Sidebar active={tab} onNav={(id) => { setTab(id); setDtcModule(null); }}
-        connected={connected} voltage={voltage} mode={mode} open={drawer} onClose={() => setDrawer(false)} />
+        connected={connected} voltage={voltage} mode={mode} profile={profile} profiles={profiles}
+        busy={busy} onProfile={switchProfile} open={drawer} onClose={() => setDrawer(false)} />
       <div className="mac-main">
         <AppBar title={page.title} subtitle={page.subtitle}
           theme={theme} setTheme={setTheme} dir={dir} setDir={setDir}
           mode={mode} onMode={switchMode} lang={lang} onLang={setLang}
           connected={connected} voltage={voltage} busy={busy} onConnect={toggleConnect} onMenu={() => setDrawer(true)} />
         <div className="mac-content">
-          {tab === "overview" && <Overview connected={connected} onOpenDtc={openDtc} />}
+          {tab === "overview" && <Overview connected={connected} adapter={adapter}
+            onAdapterSelfTest={selfTestAdapter} onOpenDtc={openDtc} />}
           {tab === "live" && <Live connected={connected} />}
           {tab === "dtc" && <Dtc connected={connected} initialModule={dtcModule} />}
           {tab === "modules" && <Modules />}

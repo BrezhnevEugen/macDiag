@@ -26,3 +26,8 @@ driver/*.dll
 # local screenshots / recordings
 Снимок экрана*.png
 Запись экрана*.mov
+
+# Claude Design export (reference; converted copies live in web/src/app)
+macDiag Design System/
+web/node_modules/
+web/dist/

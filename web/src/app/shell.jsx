@@ -1,4 +1,3 @@
-import React from 'react';
 import { Icon } from './icons.jsx';
 // macDiag Modern — responsive shell: sidebar nav + sticky app bar + global controls.
 
@@ -13,7 +12,8 @@ const NAV = [
   { id: "dict", label: "Словарь", icon: "globe" },
 ];
 
-function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
+function Sidebar({ active, onNav, connected, voltage, mode, profile, profiles,
+                   busy, onProfile, open, onClose }) {
   const src = mode === "hw" ? "Openport 2.0" : "Эмулятор";
   const sub = connected
     ? `${src}${voltage != null ? ` · ${voltage} В` : ""}`
@@ -43,6 +43,18 @@ function Sidebar({ active, onNav, connected, voltage, mode, open, onClose }) {
           </nav>
 
           <div className="mac-side-foot">
+            {profiles.length > 0 && (
+              <label className="mac-conn-text" style={{ display: "block", marginBottom: 12 }}>
+                <small>Профиль автомобиля</small>
+                <select className="mac-select" value={profile?.id || ""}
+                  disabled={connected || busy} onChange={(e) => onProfile?.(e.target.value)}>
+                  {profile && !profiles.some((item) => item.id === profile.id) && (
+                    <option value={profile.id}>{profile.label || profile.id} (external)</option>
+                  )}
+                  {profiles.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              </label>
+            )}
             <div className="mac-conn-card">
               <span className={"mac-statusdot " + (connected ? "on" : "off")}></span>
               <span className="mac-conn-text">

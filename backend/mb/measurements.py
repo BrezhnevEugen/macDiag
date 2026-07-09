@@ -1364,7 +1364,9 @@ def _sim_raw_int(svc: dict, t: float, i: int) -> int:
             return 0
     lo, hi = svc.get("low"), svc.get("high")
     if lo is None or hi is None or hi == lo:
-        phys = 1.0 + (i % 7)
+        # no declared range: gentle ±6% drift around a per-field base so scaled
+        # sensor values read as live, while small ints/flags round back to steady
+        phys = (1.0 + (i % 7)) * (1.0 + 0.06 * math.sin(t / 3.0 + i))
     else:
         phys = lo + (hi - lo) * (0.5 + 0.4 * math.sin(t / 3.0 + i))
     formula = (svc.get("output_formula") or "").strip()
@@ -1495,6 +1497,20 @@ def read_values(path: str, lang: str = "ru", hw: bool = False, client=None) -> l
         elif guard["allowed"] and hw and not client:
             read_status = "blocked"
             read_reason = "adapter not connected"
+        # Simulator teaching fallback: if no value came through the guarded path
+        # (request blocked, missing, or decode failed), synthesize a plausible
+        # live value straight from the parameter's formula/range. Sim only — the
+        # hardware path above is never relaxed.
+        if not hw and val is None:
+            try:
+                read_raw = _sim_raw_int(s, t, i)
+                val, value_source = _apply_output_formula(read_raw, s)
+                if val is not None:
+                    if not guard["allowed"]:
+                        read_reason = "синтез по формуле (нет read-запроса в CBF)"
+                    read_status = "simulated"
+            except Exception:  # noqa: BLE001
+                pass
         unit = s.get("unit") or s.get("output_unit") or ""
         out.append({"job": s["job"],
                     "localization_key": s.get("localization_key") or _service_l10n_key(s["job"]),

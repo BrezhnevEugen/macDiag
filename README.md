@@ -131,7 +131,7 @@ python -m uvicorn backend.main:app --port 8000
 ```
 
 По умолчанию `MACDIAG_MODE=sim` — backend отвечает правдоподобными данными
-(VIN, RPM, температуры, две ошибки B1535/C1525) без подключения к авто.
+(VIN, RPM, температуры, ошибки двигателя P0170/P0300) без подключения к авто.
 
 ## Подключение Openport 2.0 (macOS)
 
@@ -190,8 +190,12 @@ MACDIAG_MODE=hw MACDIAG_DRIVER=/usr/local/lib/libj2534.so python -m uvicorn back
 
 | Метод | Путь | Назначение |
 |------|------|-----------|
-| GET  | `/api/status` | режим, статус подключения |
+| GET  | `/api/status` | режим, статус подключения и профиль транспорта |
 | POST | `/api/connect` `/api/disconnect` | управление сессией |
+| GET  | `/api/adapter/status` | возможности и кэшированное состояние транспорта без ECU-запросов |
+| POST | `/api/adapter/self-test` | самотест адаптера и ISO-TP канала без запроса к ЭБУ |
+| GET  | `/api/profiles` | активный и packaged-профили автомобилей |
+| POST | `/api/profile?name=w221-x164` | смена packaged-профиля до подключения адаптера |
 | GET  | `/api/modules?chassis=W221` | список pickable-модулей |
 | GET  | `/api/catalog?chassis=X164` | полный каталог ЭБУ из Vediamo CBF |
 | GET  | `/api/dtc?module=esp` | чтение ошибок |
@@ -312,7 +316,17 @@ CP_BAUDRATE                 скорость шины
 
 Эти ID попадают в базу (`can_request/response/global`, `baudrate`) и
 используются в `modules.py` с пометкой `id_source: "cbf"`. Догадки по стандартной
-адресации остаются только как fallback (`id_source: "standard"`, помечены `?`).
+адресации остаются только как fallback из активного профиля
+(`id_source: "profile"`, помечены `?`). Сам профиль по умолчанию лежит в
+`backend/mb/profiles/w221_x164.json`; для другой машины задай
+`MACDIAG_PROFILE_PATH=/путь/к/профилю.json`. Значения из CBF всегда имеют
+приоритет (`id_source: "cbf"`).
+
+Профиль хранит не только aliases/адреса, но и безопасные gateway-probe jobs,
+captured simulator trace, demo DTC и simulator identity. Поэтому добавление
+другой машины не требует редактировать Python: положи валидный JSON в
+`backend/mb/profiles/` (его можно выбрать в UI до подключения), либо укажи
+внешний путь через `MACDIAG_PROFILE_PATH` при старте backend.
 146 из 169 ЭБУ отдали реальные ID. Пример (X164):
 
 ```

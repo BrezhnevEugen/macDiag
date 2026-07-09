@@ -25,6 +25,11 @@ MB_DTC = {
         "ru": "Случайные/множественные пропуски зажигания",
         "de": "Zufällige/mehrere Verbrennungsaussetzer erkannt",
     },
+    "P0715": {
+        "en": "Transmission input/turbine speed sensor circuit",
+        "ru": "АКПП — цепь датчика входной/турбинной частоты вращения",
+        "de": "Getriebe — Eingangs-/Turbinendrehzahlsensor (Stromkreis)",
+    },
     "P2004": {
         "en": "Intake manifold runner control stuck open (bank 1)",
         "ru": "Заслонка впускного коллектора заклинила открытой (банк 1)",

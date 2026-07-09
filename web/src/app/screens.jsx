@@ -1,10 +1,8 @@
 import React from 'react';
 import { Icon } from './icons.jsx';
-import { macDiagData } from './data.js';
-import { apiGet } from './api.js';
+import { apiGet, apiPost } from './api.js';
 // macDiag Modern — screen content. Uses modern class-based layout + shared data.
 const Ic = Icon;
-const D = () => macDiagData;
 
 function SectionHead({ title, meta }) {
   return (
@@ -16,27 +14,47 @@ function SectionHead({ title, meta }) {
   );
 }
 
-function ConnectGate({ children }) {
+function ConnectGate() {
   return <div className="mac-empty">Подключись к авто, чтобы продолжить. Нажми «Подключить» вверху.</div>;
 }
 
 const METRIC_ICONS = ["zap", "activity", "gauge", "cpu"];
 
-// DAS-style functional groups for the ECU scan list.
+// DAS-style functional groups for the ECU scan list (the backend tags each
+// scanned module with a `group`; "other" catches anything unclassified).
 const ECU_GROUPS = [
   { id: "powertrain", label: "Двигатель и трансмиссия", icon: "activity" },
   { id: "chassis",    label: "Шасси и тормоза",         icon: "gauge" },
   { id: "body",       label: "Кузов, доступ и безопасность", icon: "cpu" },
   { id: "info",       label: "Информация и комбинация",  icon: "sliders" },
+  { id: "other",      label: "Прочие блоки",             icon: "cpu" },
 ];
 
-function EcuGroups({ modules, onOpenDtc }) {
+function EcuCard({ m, onOpenDtc }) {
+  const id = m.tx != null ? "0x" + Number(m.tx).toString(16).toUpperCase() : "—";
+  const dot = m.online || m.state === "present" ? "on" : "off";
+  return (
+    <button className={"mac-ecu" + (m.dtc > 0 ? " hasfault" : "")} onClick={() => m.dtc > 0 && onOpenDtc(m.id)} title={m.detail || m.name}>
+      <div className="mac-ecu-top">
+        <span className={"mac-statusdot sm " + dot}></span>
+        <span className="mac-ecu-name">{m.ecu}</span>
+        <span className={"mac-proto " + m.protocol}>{m.protocol}</span>
+        {m.dtc > 0 && <span className="mac-faults">{m.dtc}</span>}
+      </div>
+      <div className="mac-ecu-meta">{m.name}</div>
+      <div className="mac-ecu-meta">{id} · {m.cbf || "—"}</div>
+    </button>
+  );
+}
+
+// Group the real /api/vehicle/scan modules by their backend `group` tag.
+function EcuList({ modules, onOpenDtc }) {
   return (
     <>
       {ECU_GROUPS.map((g) => {
-        const items = modules.filter((m) => m.group === g.id);
+        const items = modules.filter((m) => (m.group || "other") === g.id);
         if (!items.length) return null;
-        const faults = items.reduce((s, m) => s + (m.faults > 0 ? m.faults : 0), 0);
+        const faults = items.reduce((s, m) => s + (m.dtc > 0 ? m.dtc : 0), 0);
         return (
           <div className="mac-ecu-group" key={g.id}>
             <div className="mac-ecu-grouphead">
@@ -46,17 +64,7 @@ function EcuGroups({ modules, onOpenDtc }) {
               <span className="grule"></span>
             </div>
             <div className="mac-ecu-grid">
-              {items.map((m) => (
-                <button key={m.name} className="mac-ecu" onClick={() => m.faults > 0 && onOpenDtc(m.name)}>
-                  <div className="mac-ecu-top">
-                    <span className="mac-statusdot on sm"></span>
-                    <span className="mac-ecu-name">{m.name}</span>
-                    <span className={"mac-proto " + m.proto}>{m.proto}</span>
-                    {m.faults > 0 && <span className="mac-faults">{m.faults}</span>}
-                  </div>
-                  <div className="mac-ecu-meta">{m.part} · {m.bus}</div>
-                </button>
-              ))}
+              {items.map((m) => <EcuCard key={m.ecu + "-" + m.tx} m={m} onOpenDtc={onOpenDtc} />)}
             </div>
           </div>
         );
@@ -92,14 +100,71 @@ function Sparkline({ points, w = 150, h = 38 }) {
   );
 }
 
-function Overview({ connected, onOpenDtc }) {
-  const data = D();
-  const [scanned, setScanned] = React.useState(false);
+function Overview({ connected, adapter, onAdapterSelfTest, onOpenDtc }) {
+  const [veh, setVeh] = React.useState(null);     // identity from vehicle/info + gateway/info
+  const [scan, setScan] = React.useState(null);   // result of /api/vehicle/scan
   const [scanning, setScanning] = React.useState(false);
-  React.useEffect(() => { if (!connected) setScanned(false); }, [connected]);
-  function scan() { setScanning(true); setTimeout(() => { setScanning(false); setScanned(true); }, 850); }
+  const [err, setErr] = React.useState("");
+  const [adapterCheck, setAdapterCheck] = React.useState(null);
+
+  // On connect, pull real VIN + gateway identity (engine/chassis) in parallel.
+  React.useEffect(() => {
+    if (!connected) { setVeh(null); setScan(null); setErr(""); return; }
+    let alive = true;
+    (async () => {
+      const [info, gw] = await Promise.all([
+        apiGet("/api/vehicle/info").catch(() => null),
+        apiGet("/api/gateway/info").catch(() => null),
+      ]);
+      if (!alive) return;
+      const token = gw?.chassis_token || "";
+      setVeh({
+        vin: info?.vin || null,
+        vinDetail: info?.vin_detail || null,
+        model: ("Mercedes-Benz " + (token || gw?.chassis || "")).trim(),
+        chassis: token || gw?.chassis || "",
+        engine: (gw?.engine || "").split(/[ /]/)[0] || "",
+        voltage: info?.voltage ?? null,
+        adapter: info?.adapter?.firmware || info?.adapter?.dll || null,
+        // real fitted ECUs as reported by the car's gateway (no hardcoded list)
+        modules: (gw?.modules || []).filter((m) => m && m.ecu).map((m) => m.ecu),
+      });
+    })();
+    return () => { alive = false; };
+  }, [connected]);
+
+  async function doScan() {
+    setScanning(true); setErr("");
+    try {
+      // probe exactly what the car's gateway reports as fitted — no hardcoded list
+      const mods = veh?.modules || [];
+      const path = mods.length
+        ? "/api/vehicle/scan?modules=" + encodeURIComponent(mods.join(","))
+        : "/api/vehicle/scan" + (veh?.chassis ? "?chassis=" + encodeURIComponent(veh.chassis) : "");
+      setScan(await apiGet(path));
+    } catch (e) { setErr("Скан не удался: " + String(e)); }
+    setScanning(false);
+  }
+
+  async function selfTestAdapter() {
+    if (!onAdapterSelfTest) return;
+    setAdapterCheck(null);
+    try {
+      setAdapterCheck(await onAdapterSelfTest());
+    } catch {
+      setAdapterCheck({ ok: false, error: "Самотест не завершился" });
+    }
+  }
 
   if (!connected) return <ConnectGate />;
+
+  const v = veh || {};
+  const metrics = [
+    { label: "Напряжение", value: v.voltage != null ? v.voltage : "—", unit: v.voltage != null ? " В" : "" },
+    { label: "ЭБУ онлайн", value: scan ? `${scan.online}/${scan.modules.length}` : "—" },
+    { label: "Ошибок (DTC)", value: scan ? scan.total_dtc : "—" },
+    { label: "Протоколы", value: scan && scan.protocols?.length ? scan.protocols.join(" · ") : "—" },
+  ];
 
   return (
     <>
@@ -107,25 +172,24 @@ function Overview({ connected, onOpenDtc }) {
         <div className="mac-veh mac-panel">
           <div className="mac-veh-art"><Ic name="car" size={40} /></div>
           <div className="mac-veh-info">
-            <div className="vmodel">{data.vehicle.model}</div>
-            <div className="vvin">{data.vehicle.vin}</div>
+            <div className="vmodel">{v.model || "Mercedes-Benz"}</div>
+            <div className="vvin">{v.vin || (v.vinDetail ? "VIN не прочитан — " + v.vinDetail : "—")}</div>
             <div className="vrow">
-              <span className="mac-chip">{data.vehicle.chassis}</span>
-              <span className="mac-chip">{data.adapter}</span>
-              <span className="mac-chip">{data.bus}</span>
+              {v.chassis && <span className="mac-chip">{v.chassis}</span>}
+              {v.engine && <span className="mac-chip">{v.engine}</span>}
+              {v.adapter && <span className="mac-chip">{v.adapter}</span>}
             </div>
           </div>
         </div>
       </div>
 
       <div className="mac-section">
-        <SectionHead title="Состояние" meta="обновлено только что" />
+        <SectionHead title="Состояние" meta={scan ? "по результату скана" : "до скана"} />
         <div className="mac-metric-grid">
-          {data.metrics.map((m, i) => (
+          {metrics.map((m, i) => (
             <div className="mac-metric" key={i}>
               <div className="mac-metric-top">{m.label}<span className="mac-metric-ic"><Ic name={METRIC_ICONS[i % 4]} size={16} /></span></div>
               <div className="mac-metric-val">{m.value}{m.unit && <small>{m.unit}</small>}</div>
-              {m.hint && <div className="mac-metric-sub">{m.hint}</div>}
             </div>
           ))}
         </div>
@@ -133,165 +197,353 @@ function Overview({ connected, onOpenDtc }) {
 
       <div className="mac-section">
         <div className="mac-sec-head">
-          <h2>Блоки управления</h2>
+          <h2>Адаптер</h2>
           <span className="mac-sec-rule"></span>
-          <button className="mac-btn" onClick={scan} disabled={scanning}>
-            {scanning ? <span className="mac-spin"></span> : <Ic name="zap" size={15} />}
-            {scanning ? "Сканирую…" : "Сканировать"}
+          <span className="mac-sec-meta">{adapter?.kind || "не определён"}</span>
+          <button className="mac-btn" onClick={selfTestAdapter} disabled={!onAdapterSelfTest}>
+            <Ic name="activity" size={15} /> Самотест
           </button>
         </div>
-        {scanned ? (
-          <EcuGroups modules={data.modules} onOpenDtc={onOpenDtc} />
-        ) : (
-          <div className="mac-empty">Нажми «Сканировать», чтобы опросить все ЭБУ шасси {data.vehicle.chassis}.</div>
+        <div className="mac-veh mac-panel">
+          <div className="mac-veh-art"><Ic name="cpu" size={36} /></div>
+          <div className="mac-veh-info">
+            <div className="vmodel">{adapter?.label || "Транспорт не выбран"}</div>
+            <div className="vvin">
+              {adapter?.driver || "Драйвер не требуется в режиме симулятора"}
+            </div>
+            <div className="vrow">
+              {(adapter?.capabilities?.protocols || []).map((protocol) => (
+                <span className="mac-chip" key={protocol}>{protocol}</span>
+              ))}
+              {adapter?.capabilities?.supports_flow_control_filter && (
+                <span className="mac-chip">ISO-TP flow control</span>
+              )}
+            </div>
+          </div>
+        </div>
+        {adapterCheck?.error && (
+          <div className="mac-empty" style={{ color: "var(--danger)" }}>{adapterCheck.error}</div>
         )}
+        {adapterCheck?.checks?.length > 0 && (
+          <div className="mac-veh mac-panel">
+            <div className="mac-veh-info">
+              {adapterCheck.checks.map((check) => (
+                <div className="vrow" key={check.id}>
+                  <span className="mac-chip">{check.status === "ok" ? "✓" : "!"} {check.label}</span>
+                  <span className="mac-ecu-meta">{check.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mac-section">
+        <div className="mac-sec-head">
+          <h2>Блоки управления</h2>
+          <span className="mac-sec-rule"></span>
+          {scan && <span className="mac-sec-meta">{scan.modules.length} ЭБУ · {scan.online} онлайн · {scan.total_dtc} ошиб.</span>}
+          <button className="mac-btn" onClick={doScan} disabled={scanning}>
+            {scanning ? <span className="mac-spin"></span> : <Ic name="zap" size={15} />}
+            {scanning ? "Сканирую…" : scan ? "Пересканировать" : "Сканировать"}
+          </button>
+        </div>
+        {err && <div className="mac-empty" style={{ color: "var(--danger)" }}>{err}</div>}
+        {scan?.adapter_error && <div className="mac-empty" style={{ color: "var(--warn)" }}>{scan.adapter_error}</div>}
+        {scan ? (
+          <EcuList modules={scan.modules} onOpenDtc={onOpenDtc} />
+        ) : !err ? (
+          <div className="mac-empty">Нажми «Сканировать», чтобы опросить все ЭБУ{v.chassis ? ` шасси ${v.chassis}` : ""}.</div>
+        ) : null}
       </div>
     </>
   );
 }
 
 function Live({ connected }) {
-  const data = D();
+  const [ecus, setEcus] = React.useState([]);
+  const [ecu, setEcu] = React.useState("");
+  const [groups, setGroups] = React.useState([]);
+  const [path, setPath] = React.useState("");
   const [run, setRun] = React.useState(false);
-  // one decimal-aware numeric series per gauge
-  const seeds = React.useMemo(() => data.gauges.map((g) => {
-    const base = parseFloat(g.value);
-    const decimals = (g.value.split(".")[1] || "").length;
-    const amp = Math.max(Math.abs(base) * 0.06, decimals ? 0.05 : 1);
-    return { base, decimals, amp, series: Array.from({ length: 26 }, (_, i) => base + Math.sin(i / 2.4) * amp * (0.5 + Math.random() * 0.5)) };
-  }), []);
-  const [series, setSeries] = React.useState(() => seeds.map((s) => s.series));
+  const [vals, setVals] = React.useState([]);
+  const [history, setHistory] = React.useState({});   // job -> number[]
+
+  React.useEffect(() => { apiGet("/api/measure/ecus").then((d) => setEcus(d.ecus || [])).catch(() => {}); }, []);
+  // measurement dashboards for the selected ECU
+  React.useEffect(() => {
+    setGroups([]); setPath(""); setRun(false);
+    if (!ecu) return;
+    apiGet(`/api/measure/groups?module=${encodeURIComponent(ecu)}`)
+      .then((g) => { const m = g.measurement || []; setGroups(m); if (m[0]) setPath(m[0].path); })
+      .catch(() => {});
+  }, [ecu]);
+
+  const tick = React.useCallback(async () => {
+    if (!path || !ecu) return;
+    try {
+      const r = await apiGet(`/api/measure/read?path=${encodeURIComponent(path)}&module=${encodeURIComponent(ecu)}&lang=ru`);
+      const vs = r.values || [];
+      setHistory((current) => {
+        const next = { ...current };
+        vs.forEach((v) => {
+          if (typeof v.value === "number") next[v.job] = [...(next[v.job] || []).slice(-25), v.value];
+        });
+        return next;
+      });
+      setVals(vs);
+    } catch { setVals([]); }
+  }, [path, ecu]);
 
   React.useEffect(() => {
     if (!run) return;
-    const t = setInterval(() => {
-      setSeries((prev) => prev.map((arr, gi) => {
-        const s = seeds[gi];
-        const last = arr[arr.length - 1];
-        let next = last + (Math.random() - 0.5) * s.amp * 1.4 + (s.base - last) * 0.12;
-        return [...arr.slice(1), next];
-      }));
-    }, 1100);
+    setHistory({});
+    void tick();
+    const t = setInterval(tick, 1100);
     return () => clearInterval(t);
-  }, [run]);
+  }, [run, tick]);
 
   if (!connected) return <ConnectGate />;
-  const fmt = (v, d) => v.toFixed(d);
-
+  const numeric = vals.filter((v) => typeof v.value === "number");
   return (
     <>
       <div className="mac-toolbar">
         <label className="mac-field"><span>ЭБУ</span>
-          <select className="mac-select" defaultValue="ME97" style={{ minWidth: 150 }}><option>ME97</option><option>CRD3</option><option>ESP9MFA</option></select></label>
+          <select className="mac-select" value={ecu} onChange={(e) => setEcu(e.target.value)} style={{ minWidth: 150 }}>
+            <option value="">— выбери —</option>
+            {ecus.map((e) => <option key={e} value={e}>{e}</option>)}
+          </select></label>
         <label className="mac-field"><span>Группа измерений</span>
-          <select className="mac-select" defaultValue="boost" style={{ minWidth: 300 }}><option value="boost">Überprüfung des Ladedrucksystems</option></select></label>
-        <button className={"mac-btn" + (run ? " danger" : "")} onClick={() => setRun((r) => !r)}>
+          <select className="mac-select" value={path} onChange={(e) => { setPath(e.target.value); setRun(false); }} style={{ minWidth: 300 }} disabled={!groups.length}>
+            {!groups.length && <option value="">— нет групп —</option>}
+            {groups.map((g) => <option key={g.path} value={g.path}>{g.title || g.raw_title}</option>)}
+          </select></label>
+        <button className={"mac-btn" + (run ? " danger" : "")} onClick={() => setRun((r) => !r)} disabled={!path}>
           <Ic name={run ? "x" : "activity"} size={15} />{run ? "Остановить" : "Запустить"}
         </button>
-        {run && <span className="mac-chip" style={{ alignSelf: "center", display: "inline-flex", alignItems: "center", gap: 6 }}><span className="mac-statusdot on sm"></span>поток · 1 Гц</span>}
+        {run && <span className="mac-chip" style={{ alignSelf: "center", display: "inline-flex", alignItems: "center", gap: 6 }}><span className="mac-statusdot on sm"></span>поток · ~1 Гц</span>}
       </div>
-      {run ? (
-        <div className="mac-gauge-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-          {data.gauges.map((g, i) => (
-            <div className="mac-gauge" key={i}>
-              <div className="mac-gauge-lbl">{g.label}</div>
-              <div className="mac-gauge-val">{fmt(series[i][series[i].length - 1], seeds[i].decimals)}<small>{g.unit}</small></div>
-              <Sparkline points={series[i]} />
-              <div className="mac-gauge-sub">{g.sub}</div>
-            </div>
-          ))}
-        </div>
-      ) : <div className="mac-empty">Выбери ЭБУ и группу измерений, затем «Запустить» — пойдёт живой поток с графиками.</div>}
+      {!run ? <div className="mac-empty">Выбери ЭБУ и группу, затем «Запустить» — пойдёт живой поток (в эмуляторе значения синтезируются).</div>
+        : numeric.length === 0 ? <div className="mac-empty">В этой группе нет читаемых числовых параметров (сервисные процедуры или без read-запроса).</div>
+        : (
+          <div className="mac-gauge-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+            {numeric.map((g) => (
+              <div className="mac-gauge" key={g.job}>
+                <div className="mac-gauge-lbl">{g.label}</div>
+                <div className="mac-gauge-val">{g.value}<small>{g.unit}</small></div>
+                <Sparkline points={history[g.job] || [g.value]} />
+                <div className="mac-gauge-sub">{g.low != null && g.high != null ? `${g.low} … ${g.high}` : (g.note || "")}</div>
+              </div>
+            ))}
+          </div>
+        )}
     </>
   );
 }
 
-// generic-but-plausible diagnostic hints, keyed by DTC class letter.
-function dtcHints(code) {
-  const k = (code[0] || "").toUpperCase();
-  const map = {
-    B: { causes: ["Обрыв или короткое в цепи компонента", "Окисление контактов разъёма", "Неисправен сам компонент (лампа/привод)", "Повреждение проводки в жгуте"],
-         steps: ["Проверь разъём и контакты модуля", "Прозвони цепь компонента на обрыв/КЗ", "Замени неисправный компонент", "Сбрось код и проверь повторно"] },
-    C: { causes: ["Нет сигнала с датчика", "Загрязнение/смещение датчика", "Ошибка калибровки", "Проблема питания датчика"],
-         steps: ["Проверь установку и зазор датчика", "Считай live-данные датчика", "Выполни калибровку (если требуется)", "Сбрось код и проверь на ходу (на стенде)"] },
-    P: { causes: ["Подсос воздуха / негерметичность", "Загрязнение или износ компонента", "Отклонение топливоподачи", "Сбой исполнительного механизма"],
-         steps: ["Проверь патрубки и герметичность", "Сними freeze-frame и сравни с лимитами", "Проверь исполнительный механизм актуатором", "Сбрось и проверь под нагрузкой"] },
-    U: { causes: ["Потеря связи по шине CAN", "Повреждение CAN-проводки", "Неисправен один из ЭБУ на шине", "Проблема питания/массы модуля"],
-         steps: ["Проверь питание и массу модуля", "Замерь сопротивление шины CAN (~60 Ом)", "Опроси шлюз и соседние ЭБУ", "Сбрось и перепроверь связь"] },
-  };
-  return map[k] || map.B;
+const MSTATUS = {
+  simulated: "live (эмулятор)", hw_ok: "live", missing_request: "нет запроса",
+  blocked: "сервисная процедура", na: "не прочитано", error: "ошибка чтения",
+};
+
+// Reads and displays the live values of one measurement group (/api/measure/read).
+// "Произвести" re-reads; "Авто" polls every second for a live feel.
+function MeasureRunner({ path, module, title, onClose }) {
+  const [vals, setVals] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [auto, setAuto] = React.useState(false);
+  const read = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiGet(`/api/measure/read?path=${encodeURIComponent(path)}&module=${encodeURIComponent(module)}&lang=ru`);
+      setVals(r.values || []);
+    } catch { setVals([]); }
+    setLoading(false);
+  }, [path, module]);
+  React.useEffect(() => { read(); }, [read]);
+  React.useEffect(() => {
+    if (!auto) return;
+    const id = setInterval(read, 1000);
+    return () => clearInterval(id);
+  }, [auto, read]);
+  const live = (vals || []).filter((v) => v.value !== null).length;
+
+  return (
+    <div className="mac-subcard" style={{ marginTop: 16 }}>
+      <div className="mac-sec-head" style={{ margin: "0 0 12px" }}>
+        <h3 style={{ margin: 0 }}>Измерение · {title}</h3>
+        <span className="mac-sec-rule"></span>
+        {vals && <span className="mac-sec-meta">{live}/{vals.length} читается</span>}
+        <button className={"mac-btn" + (auto ? " danger" : "")} onClick={() => setAuto((a) => !a)}>
+          <Ic name="activity" size={15} />{auto ? "Стоп" : "Авто"}
+        </button>
+        <button className="mac-btn" onClick={read} disabled={loading}>
+          {loading ? <span className="mac-spin"></span> : <Ic name="refresh" size={15} />}Произвести
+        </button>
+        <button className="mac-btn ghost" onClick={onClose}><Ic name="x" size={15} />Закрыть</button>
+      </div>
+      {!vals ? <div className="mac-empty">Чтение…</div>
+        : vals.length === 0 ? <div className="mac-empty">В группе нет параметров данных (только процедуры).</div>
+        : (
+          <div className="mac-table-wrap">
+            <table className="mac-table">
+              <thead><tr><th>Параметр</th><th>Значение</th><th>Диапазон</th><th>Статус</th></tr></thead>
+              <tbody>
+                {vals.map((v, i) => (
+                  <tr key={i}>
+                    <td>{v.label}</td>
+                    <td>{v.value !== null
+                      ? <b>{v.value}{v.unit ? " " + v.unit : ""}</b>
+                      : <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                    <td style={{ color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                      {v.low != null && v.high != null ? `${v.low} … ${v.high}` : "—"}</td>
+                    <td><span style={{ fontSize: 11, color: v.value !== null ? "var(--ok)" : "var(--muted)" }}>
+                      {MSTATUS[v.read_status] || v.read_status || ""}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+    </div>
+  );
 }
 
-function DtcDetail({ row, module, onBack }) {
-  const data = D();
-  const mod = data.modules.find((m) => m.name === module) || {};
-  const hints = dtcHints(row.code);
-  const active = row.status === "активна";
-  const frame = [
-    { l: "Обороты", v: "812", u: "об/мин" },
-    { l: "Темп. ОЖ", v: "88", u: "°C" },
-    { l: "Напряжение", v: "13.9", u: "В" },
-    { l: "Пробег", v: "184 320", u: "км" },
-  ];
+function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear }) {
+  const [ctx, setCtx] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    let alive = true; setLoading(true);
+    apiGet(`/api/diag/context?code=${encodeURIComponent(row.code)}&module=${encodeURIComponent(moduleId)}&lang=ru`)
+      .then((c) => { if (alive) { setCtx(c); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [row.code, moduleId]);
+  const [openGroup, setOpenGroup] = React.useState(null);
+  React.useEffect(() => { setOpenGroup(null); }, [row.code]);
+  const causes = ctx?.causes || [];
+  const checks = ctx?.checks || [];
+  const linked = ctx?.linked?.measurement || [];
   return (
     <div className="mac-panel">
       <div className="mac-dtc-head">
         <span className="mac-dtc-code">{row.code}</span>
-        <span className="mac-sevdot"><i style={{ background: active ? "var(--danger)" : "var(--warn)" }}></i>{row.status}</span>
-        <span className={"mac-proto " + (mod.proto || "uds")}>{(mod.proto || "uds")}</span>
-        <span className="mac-chip">{module}</span>
+        <span className="mac-sevdot"><i style={{ background: "var(--danger)" }}></i>{row.status}</span>
+        <span className="mac-chip">{moduleLabel}</span>
         <span className="mac-dtc-actions">
           <button className="mac-btn ghost" onClick={onBack}><Ic name="chevron" size={15} style={{ transform: "rotate(180deg)" }} />Назад</button>
-          <button className="mac-btn danger"><Ic name="refresh" size={15} />Сбросить код</button>
+          <button className="mac-btn danger" onClick={onClear}><Ic name="refresh" size={15} />Сбросить код</button>
         </span>
       </div>
-      <p style={{ fontSize: 15, color: "var(--txt)", margin: "10px 0 2px", fontWeight: 500 }}>{row.desc}</p>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>raw: {row.raw} · TX {mod.tx} · RX {mod.rx} · {mod.bus}</div>
+      <p style={{ fontSize: 15, color: "var(--txt)", margin: "10px 0 2px", fontWeight: 500 }}>{row.description || ctx?.description}</p>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>raw: {row.raw}{ctx?.area ? " · " + ctx.area : ""}</div>
 
-      <div className="mac-subcard" style={{ marginTop: 20 }}>
-        <h3>Условия фиксации (freeze frame)</h3>
-        <div className="mac-mini-grid">
-          {frame.map((f, i) => <div className="mac-mini" key={i}><div className="l">{f.l}</div><div className="v">{f.v}<small>{f.u}</small></div></div>)}
-        </div>
-      </div>
-
-      <div className="mac-detail-grid">
-        <div className="mac-subcard">
-          <h3>Возможные причины</h3>
-          <ul className="mac-list causes">{hints.causes.map((c, i) => <li key={i}><span className="mk"></span>{c}</li>)}</ul>
-        </div>
-        <div className="mac-subcard">
-          <h3>Рекомендуемые шаги</h3>
-          <ul className="mac-list steps">{hints.steps.map((s, i) => <li key={i}><span className="mk">{i + 1}</span>{s}</li>)}</ul>
-        </div>
-      </div>
+      {loading ? <div className="mac-empty" style={{ marginTop: 16 }}>Загружаю контекст…</div> : (
+        <>
+          <div className="mac-detail-grid">
+            <div className="mac-subcard">
+              <h3>Возможные причины</h3>
+              <ul className="mac-list causes">{causes.map((c, i) => <li key={i}><span className="mk"></span>{c}</li>)}</ul>
+            </div>
+            <div className="mac-subcard">
+              <h3>Рекомендуемые проверки</h3>
+              <ul className="mac-list steps">{checks.map((s, i) => <li key={i}><span className="mk">{i + 1}</span>{s}</li>)}</ul>
+            </div>
+          </div>
+          {linked.length > 0 && (
+            <div className="mac-subcard" style={{ marginTop: 16 }}>
+              <h3>Связанные измерения <small style={{ color: "var(--muted)", fontWeight: 400 }}>· нажми, чтобы произвести</small></h3>
+              <div className="mac-mini-grid">
+                {linked.slice(0, 6).map((g, i) => (
+                  <div className={"mac-mini clickable" + (openGroup?.path === g.path ? " on" : "")} key={i}
+                    role="button" tabIndex={0}
+                    onClick={() => setOpenGroup((cur) => (cur?.path === g.path ? null : g))}>
+                    <div className="l">{g.title || g.raw_title}</div>
+                    <div className="v" style={{ fontSize: 13 }}>{g.count}<small>пар.</small></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {(ctx?.media || []).length > 0 && (
+            <div className="mac-subcard" style={{ marginTop: 16 }}>
+              <h3>Схемы и распиновки <small style={{ color: "var(--muted)", fontWeight: 400 }}>· StarFinder + генерируемые</small></h3>
+              <div className="mac-mini-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                {ctx.media.map((m, i) => (
+                  <a key={i} href={m.src} target="_blank" rel="noreferrer" className="mac-mini clickable" style={{ display: "block", textDecoration: "none" }}>
+                    <img src={m.src} alt={m.title} loading="lazy"
+                      style={{ width: "100%", borderRadius: 6, background: "#fff", display: "block", minHeight: 60, objectFit: "contain", maxHeight: 260 }} />
+                    <div className="l" style={{ marginTop: 6 }}>{m.title}{m.provider ? ` · ${m.provider}` : ""}</div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          {openGroup && (
+            <MeasureRunner path={openGroup.path} module={moduleId}
+              title={openGroup.title || openGroup.raw_title} onClose={() => setOpenGroup(null)} />
+          )}
+        </>
+      )}
     </div>
   );
 }
 
 function Dtc({ connected, initialModule }) {
-  const data = D();
-  const withFaults = data.modules.filter((m) => m.faults > 0);
-  const [mod, setMod] = React.useState(initialModule || (withFaults[0] && withFaults[0].name) || "ESP9MFA");
-  const [read, setRead] = React.useState(!!initialModule);
+  const [mods, setMods] = React.useState([]);    // [{id,ecu,dtc,state,protocol}]
+  const [mod, setMod] = React.useState(initialModule || "");
+  const [data, setData] = React.useState(null);  // /api/dtc response
+  const [loading, setLoading] = React.useState(false);
   const [sel, setSel] = React.useState(null);
-  React.useEffect(() => { if (initialModule) { setMod(initialModule); setRead(true); setSel(null); } }, [initialModule]);
-  const rows = (read && data.dtc[mod]) || [];
-  if (!connected) return <ConnectGate />;
 
-  if (sel) return <DtcDetail row={sel} module={mod} onBack={() => setSel(null)} />;
+  async function read(target) {
+    const t = target || mod;
+    if (!t) return;
+    setLoading(true); setSel(null);
+    try { setData(await apiGet(`/api/dtc?module=${encodeURIComponent(t)}&lang=ru`)); }
+    catch (e) { setData({ status: "error", detail: String(e), dtcs: [] }); }
+    setLoading(false);
+  }
+  // module list comes from a real scan
+  React.useEffect(() => {
+    if (!connected) { setMods([]); setData(null); return; }
+    apiGet("/api/vehicle/scan").then((s) => {
+      const list = (s.modules || []).filter((m) => m.state !== "silent");
+      setMods(list);
+      setMod((cur) => cur || initialModule || (list.find((m) => m.dtc > 0) || list[0] || {}).id || "");
+    }).catch(() => {});
+  }, [connected, initialModule]);
+  // drill-in from Overview just selects the module; the effect below reads it
+  React.useEffect(() => { if (initialModule) setMod(initialModule); }, [initialModule]);
+  // auto-read whenever the selected module changes (manual pick, drill, or default)
+  React.useEffect(() => { if (connected && mod) read(mod); }, [mod, connected]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function clear() {
+    if (!mod) return;
+    setLoading(true);
+    try { await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`); } catch { return read(mod); }
+    await read(mod);
+  }
+
+  if (!connected) return <ConnectGate />;
+  const rows = data?.dtcs || [];
+  const modLabel = (mods.find((m) => m.id === mod) || {}).ecu || mod;
+  if (sel) return <DtcDetail row={sel} moduleId={mod} moduleLabel={modLabel} onBack={() => setSel(null)} onClear={clear} />;
 
   return (
     <>
       <div className="mac-toolbar">
         <label className="mac-field"><span>Модуль</span>
-          <select className="mac-select" value={mod} onChange={(e) => { setMod(e.target.value); setRead(false); }} style={{ minWidth: 170 }}>
-            {data.modules.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+          <select className="mac-select" value={mod} onChange={(e) => { setMod(e.target.value); setData(null); }} style={{ minWidth: 200 }}>
+            {mods.length === 0 && <option value="">— подключись и сканируй —</option>}
+            {mods.map((m) => <option key={m.id} value={m.id}>{m.ecu}{m.dtc > 0 ? ` (${m.dtc})` : ""}</option>)}
           </select></label>
-        <button className="mac-btn" onClick={() => setRead(true)}><Ic name="download" size={15} />Считать ошибки</button>
-        <button className="mac-btn danger" disabled={!read || rows.length === 0}><Ic name="refresh" size={15} />Сбросить</button>
+        <button className="mac-btn" onClick={() => read()} disabled={loading || !mod}>
+          {loading ? <span className="mac-spin"></span> : <Ic name="download" size={15} />}Считать ошибки
+        </button>
+        <button className="mac-btn danger" onClick={clear} disabled={loading || rows.length === 0}><Ic name="refresh" size={15} />Сбросить</button>
       </div>
-      {read && rows.length > 0 && (
+      {data && rows.length > 0 && (
         <>
           <div className="mac-table-wrap">
             <table className="mac-table">
@@ -300,8 +552,8 @@ function Dtc({ connected, initialModule }) {
                 {rows.map((r, i) => (
                   <tr key={i} className="clickable" onClick={() => setSel(r)}>
                     <td><code>{r.code}</code></td>
-                    <td><span className="mac-sevdot"><i style={{ background: r.status === "активна" ? "var(--danger)" : "var(--warn)" }}></i>{r.status}</span></td>
-                    <td>{r.desc}</td>
+                    <td><span className="mac-sevdot"><i style={{ background: "var(--danger)" }}></i>{r.status}</span></td>
+                    <td>{r.description}</td>
                     <td><code style={{ color: "var(--muted)" }}>{r.raw}</code></td>
                     <td style={{ textAlign: "right", color: "var(--muted)" }}><Ic name="chevron" size={16} style={{ verticalAlign: "middle" }} /></td>
                   </tr>
@@ -309,301 +561,419 @@ function Dtc({ connected, initialModule }) {
               </tbody>
             </table>
           </div>
-          <p className="mac-empty" style={{ marginTop: 12 }}>Нажми на строку ошибки, чтобы открыть карточку с условиями фиксации и диагностикой.</p>
+          <p className="mac-empty" style={{ marginTop: 12 }}>Нажми на строку, чтобы открыть причины, проверки и связанные измерения.</p>
         </>
       )}
-      {read && rows.length === 0 && <div className="mac-banner ok"><Ic name="gauge" size={18} />Ошибок в модуле {mod} не найдено.</div>}
-      {!read && <div className="mac-empty">Выбери модуль и нажми «Считать ошибки».</div>}
+      {data && rows.length === 0 && data.status !== "error" && (
+        <div className="mac-banner ok"><Ic name="gauge" size={18} />
+          {data.status === "ok" ? `Ошибок в модуле ${modLabel} не найдено.`
+            : data.status === "present" ? `${modLabel}: на шине, но не отдаёт DTC (отрицательный ответ).`
+            : `${modLabel}: нет ответа от блока.`}
+        </div>
+      )}
+      {data && data.status === "error" && <div className="mac-empty" style={{ color: "var(--danger)" }}>Ошибка чтения: {data.detail}</div>}
+      {!data && !loading && <div className="mac-empty">Выбери модуль и нажми «Считать ошибки».</div>}
     </>
   );
 }
 
 function Modules() {
-  const data = D();
+  const [mods, setMods] = React.useState(null);
   const [chassis, setChassis] = React.useState("");
   const [q, setQ] = React.useState("");
-  const rows = data.modules.filter((m) => (!chassis || m.chassis === chassis) && (!q || m.name.toLowerCase().includes(q.toLowerCase())));
+  React.useEffect(() => { apiGet("/api/modules").then((d) => setMods(d.modules || [])).catch(() => setMods([])); }, []);
+  const all = React.useMemo(() => mods || [], [mods]);
+  const chassisList = React.useMemo(() => {
+    const s = new Set(); all.forEach((m) => (m.chassis || []).forEach((c) => s.add(c))); return [...s].sort();
+  }, [all]);
+  const rows = all.filter((m) =>
+    (!chassis || (m.chassis || []).includes(chassis)) &&
+    (!q || `${m.cbf} ${m.name} ${m.id}`.toLowerCase().includes(q.toLowerCase())));
+  const hex = (n) => (n != null ? "0x" + Number(n).toString(16).toUpperCase() : "—");
   return (
     <>
       <div className="mac-toolbar">
         <label className="mac-field"><span>Шасси</span>
           <select className="mac-select" value={chassis} onChange={(e) => setChassis(e.target.value)}>
-            <option value="">Все шасси</option><option value="W221">W221 (S-Class)</option><option value="X164">X164 (GL-Class)</option>
+            <option value="">Все шасси</option>
+            {chassisList.map((c) => <option key={c} value={c}>{c}</option>)}
           </select></label>
         <label className="mac-field" style={{ flex: 1, minWidth: 200 }}><span>Поиск</span>
           <input className="mac-input" placeholder="имя ЭБУ…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <span className="mac-chip" style={{ alignSelf: "center" }}>{rows.length} ЭБУ</span>
       </div>
-      <div className="mac-table-wrap">
-        <table className="mac-table">
-          <thead><tr><th>Модуль</th><th>Прот.</th><th>TX</th><th>RX</th><th>Шина</th><th>Шасси</th><th>Деталь</th></tr></thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.name}>
-                <td style={{ fontWeight: 600 }}>{m.name}</td>
-                <td><span className={"mac-proto " + m.proto}>{m.proto}</span></td>
-                <td><code>{m.tx}</code></td><td><code>{m.rx}</code></td>
-                <td>{m.bus}</td><td style={{ color: "var(--muted)" }}>{m.chassis}</td>
-                <td><code style={{ color: "var(--txt-2)" }}>{m.part}</code></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mac-empty" style={{ marginTop: 14 }}>Реальные CAN ID из comparam-таблиц Caesar (CBF Vediamo). Кузовные модули X164 на 83.3k — через шлюз ZGW.</p>
-    </>
-  );
-}
-
-function Coding({ connected }) {
-  const data = D();
-  const c = data.coding;
-  const [decoded, setDecoded] = React.useState(false);
-  const [params, setParams] = React.useState(c.params);
-  function setOpt(i, v) { setParams((p) => p.map((row, idx) => idx === i ? { ...row, value: v } : row)); }
-  return (
-    <>
-      <div className="mac-banner"><Ic name="alert" size={18} />Кодирование меняет настройки ЭБУ. Неверные значения могут вывести модуль из строя. Сначала прочитай текущее.</div>
-      <div className="mac-toolbar">
-        <label className="mac-field"><span>Модуль</span>
-          <select className="mac-select" defaultValue="KI164" style={{ minWidth: 130 }}>{data.modules.map((m) => <option key={m.name}>{m.name}</option>)}</select></label>
-        <label className="mac-field"><span>Домен</span>
-          <select className="mac-select" defaultValue={c.domain} style={{ minWidth: 250 }}><option>{c.domain}</option></select></label>
-        <label className="mac-field"><span>LID</span><input className="mac-input" defaultValue={c.lid} style={{ width: 84 }} /></label>
-        <span className="mac-tb-actions">
-          <button className="mac-btn" onClick={() => setDecoded(true)} disabled={!connected}><Ic name="download" size={15} />Прочитать с авто</button>
-          <button className="mac-btn ghost" onClick={() => setDecoded(true)}>Декодировать</button>
-          <button className="mac-btn danger" disabled={!decoded}><Ic name="upload" size={15} />Записать</button>
-        </span>
-      </div>
-      {decoded ? (
+      {mods === null ? <div className="mac-empty">Загрузка каталога…</div> : (
         <div className="mac-table-wrap">
           <table className="mac-table">
-            <thead><tr><th>Параметр</th><th>Бит</th><th>Значение</th></tr></thead>
+            <thead><tr><th>Модуль</th><th>CBF</th><th>Прот.</th><th>TX</th><th>RX</th><th>Шасси</th></tr></thead>
             <tbody>
-              {params.map((p, i) => (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{p.name}</td>
-                  <td><code style={{ color: "var(--muted)" }}>{p.bit}</code></td>
-                  <td><select className="mac-select" value={p.value} onChange={(e) => setOpt(i, e.target.value)} style={{ minWidth: 200 }}>{p.options.map((o) => <option key={o}>{o}</option>)}</select></td>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td style={{ fontWeight: 600 }}>{m.name}</td>
+                  <td><code>{m.cbf}</code></td>
+                  <td><span className={"mac-proto " + (m.protocol || "")}>{m.protocol}</span></td>
+                  <td><code>{hex(m.tx)}</code></td><td><code>{hex(m.rx)}</code></td>
+                  <td style={{ color: "var(--muted)" }}>{(m.chassis || []).join(", ")}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      ) : <div className="mac-empty">Выбери домен и нажми «Декодировать» — параметры покажутся списком с опциями. Текущая строка: <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent-2)" }}>{c.string}</code></div>}
+      )}
+      <p className="mac-empty" style={{ marginTop: 14 }}>Реальные CAN ID из CBF (Caesar/Vediamo) — курированный быстрый список ({all.length} ЭБУ). Полный каталог по шасси доступен через БД.</p>
     </>
   );
 }
 
-// deterministic pseudo-bytes: a shared "base" image + per-file mutations,
-// so two dumps look like near-identical firmware differing in a few bytes.
-function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
-function rng(seed) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
-function fileBytes(name, len) {
-  const base = rng(0xBADC0DE); const out = new Array(len);
-  for (let i = 0; i < len; i++) out[i] = Math.floor(base() * 256);
-  const mut = rng(hashStr(name)); const n = 5 + Math.floor(mut() * 5);
-  for (let i = 0; i < n; i++) { const p = Math.floor(mut() * len); out[p] = Math.floor(mut() * 256); }
-  return out;
-}
-const hx = (n) => n.toString(16).toUpperCase().padStart(2, "0");
-const asc = (n) => (n >= 32 && n < 127) ? String.fromCharCode(n) : ".";
+function Coding({ connected }) {
+  const [mods, setMods] = React.useState([]);
+  const [mod, setMod] = React.useState("");
+  const [domains, setDomains] = React.useState([]);
+  const [domain, setDomain] = React.useState("");
+  const [res, setRes] = React.useState(null);    // /api/coding/read result
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState("");
 
-function HexPane({ tag, name, bytes, diff, perRow = 16 }) {
+  React.useEffect(() => { apiGet("/api/modules").then((d) => setMods(d.modules || [])).catch(() => {}); }, []);
+  // load variant-coding domains when the module changes
+  React.useEffect(() => {
+    setDomains([]); setDomain(""); setRes(null); setErr("");
+    if (!mod) return;
+    apiGet(`/api/coding/domains?module=${encodeURIComponent(mod)}`)
+      .then((d) => { const dl = d.domains || []; setDomains(dl); if (dl[0]) setDomain(dl[0].domain); })
+      .catch(() => setDomains([]));
+  }, [mod]);
+
+  async function read() {
+    if (!mod || !domain) return;
+    setLoading(true); setErr(""); setRes(null);
+    try { setRes(await apiGet(`/api/coding/read?module=${encodeURIComponent(mod)}&domain=${encodeURIComponent(domain)}`)); }
+    catch (e) { setErr("Не удалось прочитать: " + String(e)); }
+    setLoading(false);
+  }
+
+  const [xml, setXml] = React.useState(null);   // CxF-style structure dump
+  React.useEffect(() => { setXml(null); }, [mod]);
+  async function toggleXml() {
+    if (xml !== null) { setXml(null); return; }
+    setXml("");
+    try { const r = await fetch(`/api/coding/xml?module=${encodeURIComponent(mod)}`); setXml(await r.text()); }
+    catch (e) { setXml("<!-- ошибка: " + String(e) + " -->"); }
+  }
+  function downloadXml() {
+    const blob = new Blob([xml || ""], { type: "application/xml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = (mod || "cbf") + ".coding.xml"; a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  if (!connected) return <ConnectGate />;
+  const frags = res?.fragments || [];
+  return (
+    <>
+      <div className="mac-banner"><Ic name="alert" size={18} />Кодирование меняет настройки ЭБУ. Запись отключена (read-only) — раздел читает и декодирует текущую конфигурацию из CBF.</div>
+      <div className="mac-toolbar">
+        <label className="mac-field"><span>Модуль</span>
+          <select className="mac-select" value={mod} onChange={(e) => setMod(e.target.value)} style={{ minWidth: 140 }}>
+            <option value="">— выбери —</option>
+            {mods.map((m) => <option key={m.id} value={m.id}>{m.cbf}</option>)}
+          </select></label>
+        <label className="mac-field"><span>Домен (variant coding)</span>
+          <select className="mac-select" value={domain} onChange={(e) => { setDomain(e.target.value); setRes(null); }} style={{ minWidth: 300 }} disabled={!domains.length}>
+            {!domains.length && <option value="">— нет доменов —</option>}
+            {domains.map((d) => <option key={d.domain} value={d.domain}>{d.domain}</option>)}
+          </select></label>
+        <span className="mac-tb-actions">
+          <button className="mac-btn" onClick={read} disabled={!mod || !domain || loading}>
+            {loading ? <span className="mac-spin"></span> : <Ic name="download" size={15} />}Прочитать с авто
+          </button>
+          <button className={"mac-btn" + (xml !== null ? " ghost" : "")} onClick={toggleXml} disabled={!mod}>
+            <Ic name="book" size={15} />{xml !== null ? "Скрыть XML" : "CxF XML"}
+          </button>
+          <button className="mac-btn danger" disabled title="Запись отключена (read-only)"><Ic name="upload" size={15} />Записать</button>
+        </span>
+      </div>
+      {xml !== null && (
+        <div className="mac-panel" style={{ marginBottom: 14 }}>
+          <div className="mac-hex-bar">
+            <span className="mac-sec-meta">CBF-кодирование по тегам · домены → фрагменты → биты → опции</span>
+            <button className="mac-btn ghost" style={{ marginLeft: "auto" }} onClick={downloadXml} disabled={!xml}>
+              <Ic name="download" size={14} />Скачать .xml
+            </button>
+          </div>
+          <pre style={{ margin: 0, maxHeight: 360, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.5, color: "var(--txt-2)", whiteSpace: "pre" }}>
+            {xml === "" ? "загрузка…" : xml}
+          </pre>
+        </div>
+      )}
+      {err && <div className="mac-empty" style={{ color: "var(--danger)" }}>{err}</div>}
+      {res ? (
+        <>
+          <div style={{ margin: "4px 2px 12px", fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>
+            строка: <code style={{ color: "var(--accent-2)" }}>{res.coding}</code> · {res.dump_size} Б · LID {res.lid} · {frags.length} парам.
+          </div>
+          <div className="mac-table-wrap">
+            <table className="mac-table">
+              <thead><tr><th>Параметр</th><th>Бит</th><th>Текущее</th><th>Опции</th></tr></thead>
+              <tbody>
+                {frags.map((p, i) => (
+                  <tr key={i}>
+                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td><code style={{ color: "var(--muted)" }}>@{p.byte_bit_pos}/{p.bit_length}b</code></td>
+                    <td><b>{p.current ?? (p.options && p.options[p.value]) ?? p.value}</b></td>
+                    <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{(p.options || []).slice(0, 4).join(" · ")}{(p.options || []).length > 4 ? " …" : ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : !err && <div className="mac-empty">Выбери модуль и домен, нажми «Прочитать» — покажу строку кодирования и декодированные параметры.</div>}
+    </>
+  );
+}
+
+const _clean = (s) => {
+  if (typeof s !== "string") return s;
+  return Array.from(s, (char) => {
+    const code = char.charCodeAt(0);
+    return code >= 32 && code !== 127 ? char : "";
+  }).join("").trim();
+};
+
+function hexToBytes(hx) { const o = []; for (let i = 0; i + 1 < hx.length; i += 2) o.push(parseInt(hx.substr(i, 2), 16)); return o; }
+const _hx = (n) => n.toString(16).toUpperCase().padStart(2, "0");
+const _asc = (n) => (n >= 32 && n < 127) ? String.fromCharCode(n) : ".";
+
+// Hex viewer over the REAL bytes of a CFF file (/api/flash/cff/{name}/hex), paged.
+function HexViewer({ name, jump }) {
+  const PAGE = 512, PER = 16;
+  const [offset, setOffset] = React.useState(0);
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => { if (jump != null) setOffset(jump - (jump % PER)); }, [jump]);
+  React.useEffect(() => {
+    let alive = true; setLoading(true);
+    apiGet(`/api/flash/cff/${encodeURIComponent(name)}/hex?offset=${offset}&length=${PAGE}`)
+      .then((d) => { if (alive) { setData(d); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [name, offset]);
+  if (!data) return <div className="mac-empty">{loading ? "Чтение байтов…" : "—"}</div>;
+  const bytes = hexToBytes(data.hex);
   const rows = [];
-  for (let r = 0; r * perRow < bytes.length; r++) {
-    const off = r * perRow;
-    const slice = bytes.slice(off, off + perRow);
+  for (let r = 0; r * PER < bytes.length; r++) {
+    const off = r * PER, slice = bytes.slice(off, off + PER);
     rows.push(
       <div className="mac-hex-row" key={r}>
-        <span className="mac-hex-off">{off.toString(16).toUpperCase().padStart(4, "0")}</span>
-        <span className="mac-hex-bytes">{slice.map((b, i) => <b key={i} className={diff.has(off + i) ? "df" : ""}>{hx(b)} </b>)}</span>
-        <span className="mac-hex-ascii">{slice.map((b, i) => <b key={i} className={diff.has(off + i) ? "df" : ""}>{asc(b)}</b>)}</span>
+        <span className="mac-hex-off">{(data.offset + off).toString(16).toUpperCase().padStart(6, "0")}</span>
+        <span className="mac-hex-bytes">{slice.map((b, i) => <b key={i}>{_hx(b)} </b>)}</span>
+        <span className="mac-hex-ascii">{slice.map((b, i) => <b key={i}>{_asc(b)}</b>)}</span>
       </div>
     );
   }
+  const pages = Math.max(1, Math.ceil(data.total / PAGE)), page = Math.floor(data.offset / PAGE);
   return (
-    <div className="mac-hex-pane">
-      <div className="mac-hex-head"><span className="tag">{tag}</span><code>{name}</code></div>
-      <div className="mac-hex-body">{rows}</div>
+    <div className="mac-section" style={{ marginTop: 16 }}>
+      <div className="mac-hex-bar">
+        <span className="mac-sec-meta">смещение 0x{data.offset.toString(16).toUpperCase()} · {data.total} Б всего</span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="mac-btn ghost" onClick={() => setOffset(Math.max(0, offset - PAGE))} disabled={offset === 0}><Ic name="chevron" size={14} style={{ transform: "rotate(180deg)" }} />Назад</button>
+          <span className="mac-chip" style={{ alignSelf: "center" }}>стр. {page + 1}/{pages}</span>
+          <button className="mac-btn ghost" onClick={() => setOffset(offset + PAGE)} disabled={offset + PAGE >= data.total}>Вперёд<Ic name="chevron" size={14} /></button>
+        </span>
+      </div>
+      <div className="mac-hex-pane">
+        <div className="mac-hex-head"><span className="tag">HEX</span><code>{name}.cff</code></div>
+        <div className="mac-hex-body">{rows}</div>
+      </div>
     </div>
   );
 }
 
-function CffViewer({ name }) {
-  const r = rng(hashStr(name) ^ 0x5A17);
-  const ecu = name.split(/[_\.]/)[0] || "ECU";
-  const part = "A " + (160 + Math.floor(r() * 90)) + " " + (100 + Math.floor(r() * 800)) + " " + Math.floor(10 + r() * 80) + " " + Math.floor(10 + r() * 80);
-  const sw = "00" + (30 + Math.floor(r() * 9)) + " / " + String(Math.floor(r() * 30)).padStart(2, "0");
-  // segment sizes (KB) → proportional map
-  const app = 1200 + Math.floor(r() * 900), par = 120 + Math.floor(r() * 260), boot = 48 + Math.floor(r() * 64);
-  const total = app + par + boot;
-  const fmtKB = (kb) => kb >= 1024 ? (kb / 1024).toFixed(2) + " МБ" : kb + " КБ";
-  const crc = () => "0x" + Math.floor(r() * 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
-  const segs = [
-    { key: "app",  cls: "mac-cff-seg-app",  dot: "var(--accent)", name: "Applikation",    addr: "0x80000", size: app,  ver: sw },
-    { key: "par",  cls: "mac-cff-seg-par",  dot: "var(--ok)",     name: "Parameterdaten", addr: "0x9C000", size: par,  ver: "—" },
-    { key: "boot", cls: "mac-cff-seg-boot", dot: "var(--warn)",   name: "Bootloader",     addr: "0xA0000", size: boot, ver: "BL 4.2" },
-  ];
+// Real CFF container parse (/api/flash/cff/{name}): header + data blocks + segments.
+function CffViewer({ name, onJump }) {
+  const [info, setInfo] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [xml, setXml] = React.useState(null);   // null=hidden, ""=loading, text=shown
+  React.useEffect(() => {
+    let alive = true; setLoading(true); setXml(null);
+    apiGet(`/api/flash/cff/${encodeURIComponent(name)}`)
+      .then((d) => { if (alive) { setInfo(d); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [name]);
+  async function toggleXml() {
+    if (xml !== null) { setXml(null); return; }
+    setXml("");
+    try { const r = await fetch(`/api/flash/cff/${encodeURIComponent(name)}/xml`); setXml(await r.text()); }
+    catch (e) { setXml("<!-- ошибка: " + String(e) + " -->"); }
+  }
+  function downloadXml() {
+    const blob = new Blob([xml || ""], { type: "application/xml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name + ".cff.xml"; a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  if (loading) return <div className="mac-empty">Парсинг CFF…</div>;
+  if (!info) return <div className="mac-empty" style={{ color: "var(--danger)" }}>Не удалось разобрать CFF.</div>;
+  const fl = info.flash || {};
+  const blocks = fl.blocks || [];
+  const fmtSize = (n) => (n >= 1024 ? (n / 1024).toFixed(1) + " КБ" : n + " Б");
+  const meta = [
+    ["ЭБУ", info.ecu], ["Имя", fl.flash_name], ["Автор", fl.file_author],
+    ["Дата", (fl.file_creation_time || "").slice(0, 10)], ["Инструмент", fl.authoring_tool_version],
+    ["CFF", info.header?.CFF], ["Размер", fmtSize(fl.size || info.size || 0)],
+  ].filter(([, v]) => v);
   return (
-    <div className="mac-section" style={{ marginTop: 18 }}>
-      <SectionHead title="CFF Viewer" meta="структура контейнера прошивки · read-only" />
+    <div className="mac-section">
+      <div className="mac-sec-head">
+        <h2>CFF Viewer</h2>
+        <span className="mac-sec-rule"></span>
+        <span className="mac-sec-meta">реальный разбор контейнера · read-only</span>
+        <button className={"mac-btn" + (xml !== null ? " ghost" : "")} onClick={toggleXml}>
+          <Ic name="book" size={15} />{xml !== null ? "Скрыть XML" : "CxF XML"}
+        </button>
+      </div>
+      {xml !== null && (
+        <div className="mac-panel" style={{ marginBottom: 14 }}>
+          <div className="mac-hex-bar">
+            <span className="mac-sec-meta">CFF разложен по тегам</span>
+            <button className="mac-btn ghost" style={{ marginLeft: "auto" }} onClick={downloadXml} disabled={!xml}>
+              <Ic name="download" size={14} />Скачать .xml
+            </button>
+          </div>
+          <pre style={{ margin: 0, maxHeight: 360, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.5, color: "var(--txt-2)", whiteSpace: "pre" }}>
+            {xml === "" ? "загрузка…" : xml}
+          </pre>
+        </div>
+      )}
       <div className="mac-panel">
         <div className="mac-cff-hdr">
-          <div className="mac-mini"><div className="l">ЭБУ</div><div className="v">{ecu}</div></div>
-          <div className="mac-mini"><div className="l">Номер детали</div><div className="v" style={{ fontSize: 14, fontFamily: "var(--font-mono)" }}>{part}</div></div>
-          <div className="mac-mini"><div className="l">Версия ПО</div><div className="v">{sw}</div></div>
-          <div className="mac-mini"><div className="l">Формат</div><div className="v" style={{ fontSize: 14 }}>CFF · Caesar</div></div>
-          <div className="mac-mini"><div className="l">Образ</div><div className="v" style={{ fontSize: 13 }}>{fmtKB(total)}</div></div>
+          {meta.map(([l, v]) => <div className="mac-mini" key={l}><div className="l">{l}</div><div className="v" style={{ fontSize: 13, fontFamily: "var(--font-mono)" }}>{v}</div></div>)}
         </div>
-
-        <div className="mac-cff-map">
-          {segs.map((s) => <div key={s.key} className={s.cls} style={{ width: (s.size / total * 100) + "%" }}>{s.size / total > 0.12 ? s.name : ""}</div>)}
-        </div>
-
-        <table className="mac-table" style={{ border: "1px solid var(--line)", borderRadius: "var(--r-tile)", overflow: "hidden" }}>
-          <thead><tr><th>Сегмент</th><th>Адрес</th><th>Размер</th><th>SW-версия</th><th>CRC</th></tr></thead>
-          <tbody>
-            {segs.map((s) => (
-              <tr key={s.key}>
-                <td><span className="mac-seg-dot" style={{ background: s.dot }}></span>{s.name}</td>
-                <td><code>{s.addr}</code></td>
-                <td>{fmtKB(s.size)}</td>
-                <td>{s.ver}</td>
-                <td><code style={{ color: "var(--muted)" }}>{crc()}</code></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {info.part_numbers?.length > 0 && <div style={{ margin: "4px 2px", fontSize: 12.5, color: "var(--muted)" }}>Парт-номера: <code>{info.part_numbers.join(", ")}</code></div>}
+        {fl.error && <div className="mac-empty" style={{ color: "var(--warn)" }}>Бинарный разбор недоступен: {fl.error}</div>}
+        {blocks.map((b, bi) => (
+          <div key={bi} style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Блок: <code>{b.qualifier}</code> · {b.segments.length} сегм.</div>
+            {b.segments.length > 0 ? (
+              <table className="mac-table" style={{ border: "1px solid var(--line)", borderRadius: "var(--r-tile)", overflow: "hidden" }}>
+                <thead><tr><th>Сегмент</th><th>Загр. адрес</th><th>Размер</th><th>Смещение в файле</th><th></th></tr></thead>
+                <tbody>
+                  {b.segments.map((s, si) => (
+                    <tr key={si}>
+                      <td><span className="mac-seg-dot" style={{ background: s.in_bounds ? "var(--accent)" : "var(--warn)" }}></span>{s.name}</td>
+                      <td><code>0x{s.from_address.toString(16).toUpperCase().padStart(8, "0")}</code></td>
+                      <td>{fmtSize(s.length)}</td>
+                      <td><code style={{ color: "var(--muted)" }}>0x{s.file_offset.toString(16).toUpperCase()}</code></td>
+                      <td style={{ textAlign: "right" }}><button className="mac-btn ghost" style={{ height: 30, padding: "0 10px", fontSize: 12 }} onClick={() => onJump(s.file_offset)} disabled={!s.in_bounds}><Ic name="search" size={13} />Hex</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="mac-empty">Сегментов нет (только метаданные / late-data).</div>}
+          </div>
+        ))}
       </div>
     </div>
-  );
-}
-
-function HexCompare({ dumps, initial, onClose }) {
-  const names = dumps.map((d) => d.name);
-  const [a, setA] = React.useState(initial || names[0]);
-  const [b, setB] = React.useState(names[1] || names[0]);
-  const LEN = 256;
-  const ba = React.useMemo(() => fileBytes(a, LEN), [a]);
-  const bb = React.useMemo(() => fileBytes(b, LEN), [b]);
-  const diff = React.useMemo(() => { const s = new Set(); for (let i = 0; i < LEN; i++) if (ba[i] !== bb[i]) s.add(i); return s; }, [ba, bb]);
-  return (
-    <>
-      <button className="mac-btn ghost" onClick={onClose} style={{ marginBottom: 14 }}><Ic name="chevron" size={15} style={{ transform: "rotate(180deg)" }} />Назад к дампам</button>
-      <div className="mac-hex-bar">
-        <label className="mac-field"><span>Файл A</span>
-          <select className="mac-select" value={a} onChange={(e) => setA(e.target.value)} style={{ minWidth: 220 }}>{names.map((n) => <option key={n}>{n}</option>)}</select></label>
-        <label className="mac-field"><span>Файл B</span>
-          <select className="mac-select" value={b} onChange={(e) => setB(e.target.value)} style={{ minWidth: 220 }}>{names.map((n) => <option key={n}>{n}</option>)}</select></label>
-        <span className="mac-diffcount" style={{ alignSelf: "center", marginLeft: "auto" }}>Различий: <b>{diff.size}</b> байт из {LEN}</span>
-      </div>
-      <div className="mac-hex-grid">
-        <HexPane tag="A" name={a} bytes={ba} diff={diff} />
-        <HexPane tag="B" name={b} bytes={bb} diff={diff} />
-      </div>
-      <CffViewer name={a} />
-    </>
   );
 }
 
 function Flash({ connected }) {
-  const data = D();
-  const f = data.flash;
-  const [mod, setMod] = React.useState("ME97");
-  const [readVer, setReadVer] = React.useState(false);
-  const [hex, setHex] = React.useState(null); // {a,b}
-  const statusMeta = {
-    stock:    { t: "сток",      c: "var(--txt-2)",   bg: "var(--panel-2)",     bd: "var(--line)" },
-    update:   { t: "обновление",c: "var(--accent-2)",bg: "var(--uds-surface)", bd: "var(--accent-border)" },
-    external: { t: "внешний диск", c: "var(--warn)", bg: "var(--warn-surface)",bd: "var(--warn-border)" },
-  };
+  const [mods, setMods] = React.useState([]);
+  const [mod, setMod] = React.useState("");
+  const [ver, setVer] = React.useState(null);     // /api/flash/versions
+  const [verLoading, setVerLoading] = React.useState(false);
+  const [lib, setLib] = React.useState(null);      // /api/flash/library images
+  const [q, setQ] = React.useState("");
+  const [openCff, setOpenCff] = React.useState(null);   // CFF name being viewed
+  const [jump, setJump] = React.useState(null);         // hex viewer jump offset
+
+  React.useEffect(() => { apiGet("/api/modules").then((d) => setMods(d.modules || [])).catch(() => {}); }, []);
+  React.useEffect(() => { apiGet("/api/flash/library").then((d) => setLib(d.images || [])).catch(() => setLib([])); }, []);
+
+  async function readVersions() {
+    if (!mod) return;
+    setVerLoading(true); setVer(null);
+    try { setVer(await apiGet(`/api/flash/versions?module=${encodeURIComponent(mod)}`)); }
+    catch (e) { setVer({ error: String(e) }); }
+    setVerLoading(false);
+  }
+
   if (!connected) return <ConnectGate />;
-  if (hex) return <HexCompare dumps={f.dumps} initial={hex.a} onClose={() => { setHex(null); window.scrollTo(0, 0); }} />;
-  const v = f.versions;
+  const images = (lib || []).filter((r) =>
+    !q || `${r.name} ${r.ecu} ${(r.part_numbers || []).join(" ")}`.toLowerCase().includes(q.toLowerCase()));
+  const verRows = ver && !ver.error ? Object.entries(ver.versions || {}) : [];
+
+  if (openCff) return (
+    <>
+      <button className="mac-btn ghost" onClick={() => { setOpenCff(null); setJump(null); }} style={{ marginBottom: 14 }}>
+        <Ic name="chevron" size={15} style={{ transform: "rotate(180deg)" }} />Назад к каталогу
+      </button>
+      <CffViewer name={openCff} onJump={setJump} />
+      <HexViewer name={openCff} jump={jump} />
+    </>
+  );
+
   return (
     <>
-      <div className="mac-banner"><Ic name="alert" size={18} />Запись прошивки отключена намеренно. Неверный или прерванный флэш может вывести ЭБУ из строя — раздел работает в режиме чтения (версии, дампы, каталог).</div>
+      <div className="mac-banner"><Ic name="alert" size={18} />Запись прошивки отключена намеренно. Неверный или прерванный флэш может вывести ЭБУ из строя — раздел работает в режиме чтения (версии ПО, каталог CFF, hex-просмотр).</div>
 
       <div className="mac-toolbar">
         <label className="mac-field"><span>Модуль</span>
-          <select className="mac-select" value={mod} onChange={(e) => { setMod(e.target.value); setReadVer(false); }} style={{ minWidth: 150 }}>
-            {data.modules.map((m) => <option key={m.name}>{m.name}</option>)}
+          <select className="mac-select" value={mod} onChange={(e) => { setMod(e.target.value); setVer(null); }} style={{ minWidth: 150 }}>
+            <option value="">— выбери —</option>
+            {mods.map((m) => <option key={m.id} value={m.id}>{m.cbf}</option>)}
           </select></label>
         <span className="mac-tb-actions">
-          <button className="mac-btn" onClick={() => setReadVer(true)}><Ic name="download" size={15} />Считать версии ПО</button>
-          <button className="mac-btn ghost"><Ic name="upload" size={15} />Сохранить дамп</button>
-          <button className="mac-btn" disabled style={{ opacity: .5 }}><Ic name="drive" size={15} />Прошить (501)</button>
+          <button className="mac-btn" onClick={readVersions} disabled={!mod || verLoading}>
+            {verLoading ? <span className="mac-spin"></span> : <Ic name="download" size={15} />}Считать версии ПО
+          </button>
+          <button className="mac-btn danger" disabled title="Прошивка отключена (read-only)"><Ic name="drive" size={15} />Прошить</button>
         </span>
       </div>
 
-      {readVer && (
+      {ver && ver.error && <div className="mac-empty" style={{ color: "var(--danger)" }}>Ошибка чтения версий: {ver.error}</div>}
+      {verRows.length > 0 && (
         <div className="mac-section">
-          <SectionHead title="Текущее ПО блока" meta={mod} />
+          <SectionHead title="Текущее ПО блока" meta={ver.module} />
           <div className="mac-panel">
             <div className="mac-mini-grid">
-              <div className="mac-mini"><div className="l">Версия ПО</div><div className="v">{v.sw}</div></div>
-              <div className="mac-mini"><div className="l">Номер детали (SW)</div><div className="v" style={{ fontSize: 14, fontFamily: "var(--font-mono)" }}>{v.part}</div></div>
-              <div className="mac-mini"><div className="l">Hardware</div><div className="v" style={{ fontSize: 14, fontFamily: "var(--font-mono)" }}>{v.hw}</div></div>
-              <div className="mac-mini"><div className="l">Bootloader</div><div className="v">{v.boot}</div></div>
-              <div className="mac-mini"><div className="l">CFF-образ</div><div className="v" style={{ fontSize: 13, fontFamily: "var(--font-mono)" }}>{v.cff}</div></div>
-              <div className="mac-mini"><div className="l">Статус</div><div className="v" style={{ color: "var(--ok)" }}>{v.state}</div></div>
+              {verRows.map(([k, v]) => (
+                <div className="mac-mini" key={k}>
+                  <div className="l">{k}</div>
+                  <div className="v" style={{ fontSize: 14, fontFamily: "var(--font-mono)" }}>{_clean(v) || "—"}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
       <div className="mac-section">
-        <SectionHead title="Каталог прошивок (CFF)" meta="чтение метаданных · скачивание образа" />
+        <div className="mac-toolbar" style={{ marginBottom: 12 }}>
+          <SectionHead title="Каталог прошивок (CFF)" meta={lib === null ? "загрузка…" : `${images.length} / ${lib.length} образов`} />
+          <label className="mac-field" style={{ flex: 1, minWidth: 200 }}><span>Поиск</span>
+            <input className="mac-input" placeholder="имя образа, ЭБУ, парт-номер…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        </div>
         <div className="mac-table-wrap">
           <table className="mac-table">
-            <thead><tr><th>Образ</th><th>ЭБУ</th><th>Версия</th><th>Размер</th><th>Дата</th><th>Статус</th><th></th></tr></thead>
+            <thead><tr><th>Образ</th><th>ЭБУ</th><th>Парт-номера</th><th>Шасси</th><th></th></tr></thead>
             <tbody>
-              {f.library.map((r) => {
-                const s = statusMeta[r.status];
-                return (
-                  <tr key={r.name}>
-                    <td><code>{r.name}</code></td>
-                    <td style={{ fontWeight: 600 }}>{r.ecu}</td>
-                    <td><code style={{ color: "var(--muted)" }}>{r.ver}</code></td>
-                    <td>{r.size}</td>
-                    <td style={{ color: "var(--muted)" }}>{r.date}</td>
-                    <td><span style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: "var(--r-code)", color: s.c, background: s.bg, border: "1px solid " + s.bd }}>{s.t}</span></td>
-                    <td style={{ textAlign: "right" }}>
-                      <button className="mac-btn ghost" style={{ height: 32, padding: "0 12px", fontSize: 12.5 }}><Ic name="download" size={14} />Скачать</button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {images.slice(0, 100).map((r) => (
+                <tr key={r.name} className="clickable" onClick={() => { setOpenCff(r.name); setJump(null); }}>
+                  <td><code>{r.name}</code></td>
+                  <td style={{ fontWeight: 600 }}>{r.ecu}</td>
+                  <td><code style={{ color: "var(--muted)" }}>{(r.part_numbers || []).join(", ") || "—"}</code></td>
+                  <td style={{ color: "var(--muted)" }}>{r.chassis_hint || "—"}</td>
+                  <td style={{ textAlign: "right", color: "var(--muted)" }}><Ic name="search" size={14} style={{ verticalAlign: "middle" }} /> разобрать</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div className="mac-section">
-        <SectionHead title="Дампы прошивок" meta={`${f.dumps.length} сохранено локально`} />
-        <div style={{ margin: "-6px 0 14px" }}>
-          <button className="mac-btn ghost" onClick={() => { setHex({ a: f.dumps[0].name }); window.scrollTo(0, 0); }}><Ic name="search" size={15} />Сравнить дампы в hex</button>
-        </div>
-        <div className="mac-ecu-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-          {f.dumps.map((d) => (
-            <div className="mac-panel" key={d.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                <span className="gi" style={{ width: 28, height: 28, borderRadius: 8, display: "grid", placeItems: "center", background: "var(--uds-surface)", color: "var(--accent-2)", flex: "none" }}><Ic name="drive" size={15} /></span>
-                <code style={{ fontSize: 12.5, color: "var(--txt)", overflowWrap: "anywhere" }}>{d.name}</code>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <span className="mac-chip">{d.ecu}</span><span className="mac-chip">{d.size}</span><span className="mac-chip">{d.date}</span>
-              </div>
-              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{d.note}</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-                <button className="mac-btn ghost" style={{ height: 32, padding: "0 12px", fontSize: 12.5 }}><Ic name="download" size={14} />Экспорт</button>
-                <button className="mac-btn ghost" style={{ height: 32, padding: "0 12px", fontSize: 12.5 }} onClick={() => { setHex({ a: d.name }); window.scrollTo(0, 0); }}><Ic name="search" size={14} />Открыть hex</button>
-              </div>
-            </div>
-          ))}
-        </div>
+        {images.length > 100 && <p className="mac-empty" style={{ marginTop: 10 }}>Показаны первые 100 — уточни поиск, чтобы сузить.</p>}
       </div>
     </>
   );

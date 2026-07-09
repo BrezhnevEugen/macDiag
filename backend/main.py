@@ -24,10 +24,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .j2534 import (make_passthru, PassThruError, UDSClient, UDSError,
-                    KWPClient, KWPError, ISO15765)
+                    KWPClient, KWPError, ISO15765, adapter_profile)
 from .j2534.passthru import OBD_PHYS_TX_BASE, OBD_PHYS_RX_BASE, OBD_FUNCTIONAL_TX
 from .mb import (MODULES, MODULES_BY_ID, CATALOG, modules_for, catalog_list,
-                 DEFAULT_DASHBOARD, DIDS, decode_pid, describe_dtc)
+                 DEFAULT_DASHBOARD, DIDS, decode_pid, describe_dtc, gateway_info_spec,
+                 gateway_probes, profile_info, available_profiles, select_profile)
 from .mb.seedkey import get_algo
 
 DiagError = (UDSError, KWPError)
@@ -55,13 +56,24 @@ class Session:
         self.baudrate = None
         self.connected = False
         self._vbatt = None           # cached battery voltage (read at connect)
+        self._adapter_info = None    # cached versions; never poll the adapter in /api/status
+        self._last_error = None
         # Guards connect/disconnect/reset transitions (per-request IO is
         # serialized separately by bus.io_lock inside the UDS/KWP clients).
         self._lock = threading.RLock()
 
     def connect(self):
         with self._lock:
-            self._connect_locked()
+            try:
+                self._connect_locked()
+            except Exception as e:  # noqa: BLE001 - keep the original adapter failure
+                self._last_error = str(e)
+                try:
+                    self._disconnect_locked()
+                except Exception:  # noqa: BLE001 - cleanup must not mask the real failure
+                    pass
+                raise
+            self._last_error = None
 
     def _connect_locked(self):
         if self.connected:
@@ -87,6 +99,7 @@ class Session:
         self.baudrate = 500000
         self.connected = True
         self._vbatt = self._read_vbatt()  # read once; status poll uses the cache
+        self._adapter_info = self._read_adapter_info()
 
     def _channel_for(self, baudrate: int = 500000) -> int:
         """Always the single 500k diagnostic channel.
@@ -103,15 +116,25 @@ class Session:
 
     def disconnect(self):
         with self._lock:
-            if self.bus and self.connected:
-                try:
-                    if self.channel is not None:
-                        self.bus.disconnect(self.channel)
-                    self.bus.close()
-                finally:
-                    self.channel = None
-                    self.baudrate = None
-                    self.connected = False
+            self._disconnect_locked()
+
+    def _disconnect_locked(self):
+        """Close partially opened transports too (for example a failed connect)."""
+        bus = self.bus
+        try:
+            if bus and self.channel is not None:
+                bus.disconnect(self.channel)
+        finally:
+            try:
+                if bus:
+                    bus.close()
+            finally:
+                self.bus = None
+                self.channel = None
+                self.baudrate = None
+                self.connected = False
+                self._vbatt = None
+                self._adapter_info = None
 
     def reset_channel(self):
         """Reopen the 500k channel — the only reliable way to clear accumulated
@@ -147,6 +170,12 @@ class Session:
             except Exception:  # noqa: BLE001
                 return None
 
+    def _read_adapter_info(self) -> dict | None:
+        try:
+            return self.bus.read_version()
+        except Exception:  # noqa: BLE001 - version support varies by J2534 driver
+            return None
+
     def voltage(self) -> float | None:
         """Cached battery voltage. Read once at connect — NOT on every status
         poll, which otherwise spams READ_VBATT and fights the diagnostic IO."""
@@ -154,12 +183,53 @@ class Session:
 
     def adapter_info(self) -> dict | None:
         """Adapter versions read from the device (works without a car)."""
-        if not self.connected:
-            return None
-        try:
-            return self.bus.read_version()
-        except Exception:  # noqa: BLE001
-            return None
+        return self._adapter_info if self.connected else None
+
+    def adapter_status(self) -> dict:
+        """Cached, non-invasive transport state for the UI and API clients."""
+        profile = self.bus.adapter_profile() if self.bus else adapter_profile(MODE, DRIVER)
+        channel = None
+        if self.connected and self.channel is not None:
+            channel = {"protocol": "ISO15765", "baudrate": self.baudrate}
+        return {
+            "mode": MODE,
+            "connected": self.connected,
+            "state": "connected" if self.connected else "disconnected",
+            "adapter": profile,
+            "channel": channel,
+            "version": self.adapter_info(),
+            "voltage": self.voltage(),
+            "last_error": self._last_error,
+        }
+
+    def self_test(self) -> dict:
+        """Open the transport and validate adapter/channel health without ECU IO."""
+        opened_here = not self.connected
+        if opened_here:
+            self.connect()
+        status = self.adapter_status()
+        voltage = status["voltage"]
+        checks = [
+            {"id": "transport", "label": "Транспорт", "status": "ok",
+             "detail": status["adapter"]["label"]},
+            {"id": "channel", "label": "Диагностический канал", "status": "ok",
+             "detail": "ISO15765 · 500 кбит/с"},
+            {"id": "version", "label": "Версия адаптера",
+             "status": "ok" if status["version"] else "warning",
+             "detail": "получена" if status["version"] else "драйвер не вернул версию"},
+        ]
+        if MODE == "hw" and (voltage is None or voltage < 6):
+            voltage_check = {
+                "id": "voltage", "label": "Питание OBD", "status": "warning",
+                "detail": "адаптер открыт, но автомобиль не обнаружен (на столе это нормально)",
+            }
+        else:
+            voltage_check = {
+                "id": "voltage", "label": "Питание OBD", "status": "ok",
+                "detail": f"{voltage} В" if voltage is not None else "не поддерживается",
+            }
+        checks.append(voltage_check)
+        return {**status, "ok": True, "opened_here": opened_here, "checks": checks}
 
     @property
     def driver_path(self):
@@ -201,10 +271,10 @@ def _parse_hex(s: str, field: str = "value") -> bytes:
 
 
 def _module_client(module_id: str | None):
-    """Resolve a client for any module: a curated quick-pick id, OR any ECU name
+    """Resolve a client for any module: a profile alias, OR any ECU name
     from the unified database (any chassis), OR fall back to generic OBD."""
     from .mb import ecu_db
-    # 1. curated quick-pick (e.g. "ezs", "esp")
+    # 1. selected vehicle-profile alias (e.g. "ezs", "esp")
     if module_id and module_id in MODULES_BY_ID:
         m = MODULES_BY_ID[module_id]
         return session.client(m["tx"], m["rx"], m["protocol"],
@@ -237,9 +307,13 @@ def _cleanup():
 
 @app.get("/api/status")
 def status():
+    state = session.adapter_status()
     return {"mode": MODE, "connected": session.connected,
             "driver": session.driver_path or DRIVER,
-            "voltage": session.voltage() if session.connected else None}
+            "voltage": session.voltage() if session.connected else None,
+            "adapter": state["adapter"], "adapter_state": state["state"],
+            "channel": state["channel"], "last_error": state["last_error"],
+            "profile": profile_info()}
 
 
 @app.get("/api/log")
@@ -266,10 +340,31 @@ def set_mode(mode: str):
     MODE = mode
     try:
         session.connect()
-        return {"mode": MODE, "connected": True, "voltage": session.voltage()}
+        return status()
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"mode": MODE, "connected": False, "error": str(e)},
                             status_code=400)
+
+
+@app.get("/api/profiles")
+def get_profiles():
+    """List profiles bundled with the app; external paths are never exposed here."""
+    return {"active": profile_info(), "profiles": available_profiles()}
+
+
+@app.post("/api/profile")
+def set_profile(name: str):
+    """Switch packaged vehicle profile only between diagnostic sessions."""
+    if session.connected:
+        return JSONResponse(
+            {"error": "отключи адаптер перед сменой профиля автомобиля"}, status_code=409,
+        )
+    selected = select_profile(name)
+    if not selected:
+        return JSONResponse({"error": "неизвестный профиль автомобиля"}, status_code=404)
+    out = status()
+    out["profiles"] = available_profiles()
+    return out
 
 
 @app.post("/api/connect")
@@ -289,26 +384,46 @@ def connect():
         warn = (f"кабель открыт (адаптер отвечает: fw={info.get('firmware') if info else '?'}), "
                 f"но напряжение = {v} В — это значит OBD не подключён к машине "
                 "(на столе это норма). Воткни в OBD для реальной работы.")
-    return {"connected": True, "mode": MODE, "driver": session.driver_path,
-            "voltage": v, "adapter": info, "warning": warn}
+    out = status()
+    out.update({"adapter_info": info, "warning": warn})
+    return out
 
 
 @app.get("/api/adapter/info")
 def adapter_info():
-    """Adapter API/DLL/firmware versions - works without a car."""
+    """Backward-compatible response with cached adapter version information."""
     if not session.connected:
         try:
             session.connect()
         except Exception as e:  # noqa: BLE001
             return JSONResponse({"error": str(e)}, status_code=400)
+    state = session.adapter_status()
     return {"mode": MODE, "driver": session.driver_path,
-            "adapter": session.adapter_info(), "voltage": session.voltage()}
+            "adapter": session.adapter_info(), "transport": state["adapter"],
+            "channel": state["channel"], "voltage": session.voltage()}
+
+
+@app.get("/api/adapter/status")
+def adapter_status():
+    """Cached transport capabilities and health; never performs ECU IO."""
+    return session.adapter_status()
+
+
+@app.post("/api/adapter/self-test")
+def adapter_self_test():
+    """Open and validate only the adapter/channel; never sends a request to an ECU."""
+    try:
+        return session.self_test()
+    except Exception as e:  # noqa: BLE001 - return a UI-safe transport failure
+        state = session.adapter_status()
+        return JSONResponse({**state, "ok": False, "error": str(e), "checks": []},
+                            status_code=400)
 
 
 @app.post("/api/disconnect")
 def disconnect():
     session.disconnect()
-    return {"connected": False}
+    return status()
 
 
 @app.get("/api/vehicle/info")
@@ -346,7 +461,7 @@ def vehicle_info():
 
 
 def _dedup_by_tx(mods: list) -> list:
-    """One physical ECU per CAN address — collapse curated entries that share a
+    """One physical ECU per CAN address — collapse profile entries that share a
     tx (e.g. petrol ME-SFI and diesel CDI both at 0x7E0)."""
     seen, out = set(), []
     for m in mods:
@@ -365,7 +480,7 @@ def _present_value(value) -> bool:
     """Gateway coding values are German strings from the ZGW CBF.
 
     Only explicit installed/active values count as present. Unknown text stays
-    false; we do not infer equipment from curated module lists.
+    false; we do not infer equipment from profile module lists.
     """
     s = str(value or "").strip().lower()
     if not s or "nicht" in s:
@@ -373,15 +488,10 @@ def _present_value(value) -> bool:
     return any(word in s for word in ("vorhanden", "aktiv", "erlaubt", "present", "installed"))
 
 
-def _decode_can_b_bitmap(coding: bytes, source: str) -> list[dict]:
-    """Decode ZGW164 CAN-B bitmaps through the CBF's CAN-B SG bit map.
-
-    310700 is the configured/Soll 16-byte variant coding. 310800 is an 8-byte
-    actual/Ist snapshot, but ZGW164 uses the same SG bit positions for the
-    visible CAN-B ECUs in this range.
-    """
+def _decode_can_b_bitmap(coding: bytes, source: str, ecu: str, domain: str) -> list[dict]:
+    """Decode a profile-defined gateway bitmap through its CBF SG bit map."""
     from .mb import varcoding
-    dec = varcoding.decode("ZGW164", "VCD_CAN_B_Soll_Konfiguration", coding)
+    dec = varcoding.decode(ecu, domain, coding)
     out = []
     for f in (dec or {}).get("fragments", []):
         name = f.get("name")
@@ -398,25 +508,28 @@ def _gateway_module(name: str, present: bool = True) -> dict:
     matches. If no CAN ids are known, keep it visible but not probeable."""
     from .mb import ecu_db
     ecu = (name or "").strip()
-    curated = next((m for m in MODULES if m.get("cbf") == ecu or m.get("id") == ecu), None)
+    profile_module = next(
+        (m for m in MODULES if m.get("cbf") == ecu or m.get("id") == ecu), None,
+    )
     meta = ecu_db.get(ecu) or CATALOG.get(ecu) or {}
-    label = curated.get("name") if curated else ecu
+    label = profile_module.get("name") if profile_module else ecu
     tx = meta.get("can_request")
     rx = meta.get("can_response")
-    protocol = meta.get("protocol") or (curated or {}).get("protocol") or "uds"
-    if tx is None and curated and curated.get("id_source") == "cbf":
-        tx, rx = curated.get("tx"), curated.get("rx")
-        protocol = curated.get("protocol", protocol)
+    protocol = meta.get("protocol") or (profile_module or {}).get("protocol") or "uds"
+    if tx is None and profile_module and profile_module.get("id_source") == "cbf":
+        tx, rx = profile_module.get("tx"), profile_module.get("rx")
+        protocol = profile_module.get("protocol", protocol)
     return {
-        "id": ecu if meta or not curated else curated["id"],
+        "id": ecu if meta or not profile_module else profile_module["id"],
         "ecu": ecu,
         "cbf": ecu,
         "name": label,
         "protocol": protocol,
         "tx": tx,
         "rx": rx,
-        "baudrate": meta.get("baudrate") or (curated or {}).get("baudrate"),
-        "chassis": meta.get("chassis") or (curated or {}).get("chassis", []),
+        "baudrate": meta.get("baudrate") or (profile_module or {}).get("baudrate"),
+        "chassis": meta.get("chassis") or (profile_module or {}).get("chassis", []),
+        "group": (profile_module or {}).get("group"),
         "source": "gateway",
         "configured": bool(present),
         "address_known": tx is not None and rx is not None,
@@ -430,16 +543,33 @@ def _scan_targets(chassis: str | None = None, modules: str | None = None) -> lis
     return _dedup_by_tx(modules_for(chassis))
 
 
+def _module_group(m: dict) -> str:
+    group = m.get("group")
+    if group in {"powertrain", "chassis", "body", "info"}:
+        return group
+    s = f"{m.get('cbf') or ''} {m.get('name') or ''}".lower()
+    if any(k in s for k in ("engine", "transmission", "tronic", "fuel",
+                            "getriebe", "motor", "kraftstoff")):
+        return "powertrain"
+    if any(k in s for k in ("esp", "abs", "brake", "brems", "airmatic",
+                            "abc", "suspension", "tyre", "tire", "steering", "lenk")):
+        return "chassis"
+    if any(k in s for k in ("cluster", "kombi", "instrument", "tacho")):
+        return "info"
+    return "body"
+
+
 def _scan_module(m: dict) -> dict:
     """Probe one ECU: state = online (read DTCs) | present (answered, can't read)
     | silent (no response) | adapter_error (J2534 failure). One flow-control
     filter is kept active via StopMsgFilter; no channel reconnect here (repeated
     PassThruConnect destabilises the Tactrix build)."""
     state, n, detail = "silent", 0, ""
+    group = _module_group(m)
     if not m.get("address_known", m.get("tx") is not None and m.get("rx") is not None):
         return {"id": m["id"], "ecu": m.get("ecu") or m.get("cbf"), "name": m["name"],
                 "cbf": m.get("cbf"), "protocol": m.get("protocol"), "tx": m.get("tx"),
-                "state": "configured", "online": False, "dtc": 0,
+                "state": "configured", "online": False, "dtc": 0, "group": group,
                 "detail": "reported by gateway, but no CAN id found in CBF catalog",
                 "source": m.get("source"), "address_known": False}
     try:
@@ -455,13 +585,13 @@ def _scan_module(m: dict) -> dict:
     return {"id": m["id"], "ecu": m.get("ecu") or m.get("cbf"), "name": m["name"],
             "cbf": m.get("cbf"), "protocol": m["protocol"], "tx": m.get("tx"),
             "state": state, "online": state in ("online", "present"),
-            "dtc": n, "detail": detail, "source": m.get("source"),
+            "dtc": n, "detail": detail, "source": m.get("source"), "group": group,
             "address_known": m.get("address_known", True)}
 
 
 @app.get("/api/vehicle/scan")
 def vehicle_scan(chassis: str | None = None, modules: str | None = None):
-    """Scan either explicit gateway ECU names, or the curated chassis fallback."""
+    """Scan either explicit gateway ECU names, or the selected profile fallback."""
     if not session.connected:
         return JSONResponse({"error": "не подключено"}, status_code=400)
     try:
@@ -470,7 +600,7 @@ def vehicle_scan(chassis: str | None = None, modules: str | None = None):
         pass
     mods = _scan_targets(chassis, modules)
     rows = [_scan_module(m) for m in mods]
-    return {"chassis": chassis, "source": "gateway" if modules else "curated",
+    return {"chassis": chassis, "source": "gateway" if modules else "profile",
             "modules": rows,
             "online": sum(1 for r in rows if r["online"]),
             "total_dtc": sum(r["dtc"] for r in rows if r["state"] == "online"),
@@ -499,7 +629,7 @@ def vehicle_scan_stream(chassis: str | None = None, modules: str | None = None):
         online = total = 0
         adapter_error = False
         yield sse({"type": "start", "count": len(mods),
-                   "source": "gateway" if modules else "curated",
+                   "source": "gateway" if modules else "profile",
                    "protocols": sorted({(m.get("protocol") or "").upper() for m in mods
                                         if m.get("address_known", True)})})
         for m in mods:
@@ -518,31 +648,6 @@ def vehicle_scan_stream(chassis: str | None = None, modules: str | None = None):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store",
                                       "X-Accel-Buffering": "no"})
-
-
-# Mercedes-proprietary READ flow per target: open the extended diagnostic
-# session (MB uses 0x10 0x92, NOT 0x10 0x03), then read with the real CBF jobs.
-# READ-ONLY: never the 0x3B/0x28/0x29/flash write jobs.
-_GW = {
-    "zgw": {"session": "1092", "reqs": [
-        ("CAN-Ist config (установлено)", "310800"),
-        ("CAN-Soll config (должно быть)", "310700"),
-        ("CAN error status", "310500"),
-        ("variant code 38B", "300101"),
-        ("ZGW system state", "2300100D01"),
-        ("version (OS)", "21E0"),
-    ]},
-    "ezs": {"session": "1092", "reqs": [
-        ("VIN 1A90", "1A90"),
-        ("VIN/FIN 2105", "2105"),
-        ("version", "21E0"),
-    ]},
-    "_default": {"session": "1092", "reqs": [
-        ("VIN 1A90", "1A90"),
-        ("version 21E0", "21E0"),
-        ("variant code 300101", "300101"),
-    ]},
-}
 
 
 @app.get("/api/gateway/probe")
@@ -564,10 +669,21 @@ def gateway_probe(target: str = "zgw,ezs"):
         except Exception as e:  # noqa: BLE001
             out.append({"target": tid, "error": str(e)})
             continue
-        spec = _GW.get(tid, _GW["_default"])
+        probes = gateway_probes()
+        spec = probes.get(tid) or probes.get("default")
+        if not isinstance(spec, dict):
+            out.append({"target": tid, "error": "no probe definition in active profile"})
+            continue
         results = []
-        reqs = [("session ext", spec["session"])] + spec["reqs"]
+        reqs = [("session ext", spec.get("session", ""))]
+        reqs += [
+            (item.get("label", "profile request"), item.get("request", ""))
+            for item in spec.get("requests", []) if isinstance(item, dict)
+        ]
         for label, hexreq in reqs:
+            if not hexreq:
+                results.append({"label": label, "error": "empty profile request"})
+                continue
             try:
                 resp = cl.raw_request(bytes.fromhex(hexreq))
                 results.append({"label": label, "req": hexreq.upper(),
@@ -585,59 +701,71 @@ def gateway_probe(target: str = "zgw,ezs"):
 def gateway_info():
     """Read the car's configuration from the central gateway and DECODE it:
     engine / chassis / body + equipment options (global variant code) and the
-    configured ECU list (CAN-B config). Opens session 0x1092 first (MB)."""
+    configured ECU list. Requests and decoder metadata come from the profile."""
     if not session.connected:
         return JSONResponse({"error": "не подключено"}, status_code=400)
     from .mb import varcoding
     out = {"engine": None, "chassis": None, "body": None,
            "options": [], "ecus": [], "can_ist": [], "modules": [],
            "gateway_raw": {}, "decoded_sources": []}
+    spec = gateway_info_spec()
+    if not spec:
+        return JSONResponse({"error": "active profile has no gateway definition"}, status_code=400)
     try:
         session.reset_channel()
-        cl = _module_client("zgw")
-        cl.raw_request(bytes.fromhex("1092"))                 # extended session
+        cl = _module_client(spec.get("target"))
+        session_request = spec.get("session")
+        if session_request:
+            cl.raw_request(bytes.fromhex(session_request))
         # global variant code -> equipment / engine
+        global_code = spec.get("global_code", {})
         try:
-            resp = cl.raw_request(bytes.fromhex("300101"))
-            dec = varcoding.decode("ZGW164", "VCD_Global_Code", resp[3:])  # strip 70 01 01
+            resp = cl.raw_request(bytes.fromhex(global_code["request"]))
+            dec = varcoding.decode(
+                global_code["ecu"], global_code["domain"],
+                resp[int(global_code.get("payload_offset", 0)):],
+            )
+            identity_fields = global_code.get("identity_fields", [])
             for f in (dec or {}).get("fragments", []):
                 nm, cur = f.get("name", ""), f.get("current")
                 if cur is None:
                     continue
-                if nm.startswith("Motor"):
-                    out["engine"] = cur
-                elif nm.startswith("Baureihe"):
-                    out["chassis"] = cur
-                elif nm.startswith("Karosserie"):
-                    out["body"] = cur
+                for field in identity_fields:
+                    if nm.startswith(field.get("prefix", "")):
+                        out[field.get("key")] = cur
+                        break
                 out["options"].append({"name": nm, "value": cur})
         except Exception as e:  # noqa: BLE001
             out["code_error"] = str(e)
-        # CAN-Ist is a real gateway snapshot too. It is shorter than CAN-Soll,
-        # but the ZGW164 CBF uses the same CAN-B SG bit positions for ECU names.
-        try:
-            resp = cl.raw_request(bytes.fromhex("310800"))
-            out["gateway_raw"]["can_ist_310800"] = resp.hex().upper()
-            out["can_ist"] = _decode_can_b_bitmap(resp[2:], "310800")
-            out["decoded_sources"].append(
-                {"service": "310800", "domain": "VCD_CAN_B_Soll_Konfiguration",
-                 "label": "CAN-B Ist Konfiguration"})
-        except Exception as e:  # noqa: BLE001
-            out["can_ist_error"] = str(e)
-        # CAN-B configured ECU list
-        try:
-            resp = cl.raw_request(bytes.fromhex("310700"))
-            out["gateway_raw"]["can_soll_310700"] = resp.hex().upper()
-            out["ecus"] = _decode_can_b_bitmap(resp[2:], "310700")
-            out["modules"] = [_gateway_module(e["name"], e["present"])
-                              for e in out["ecus"] if e["present"] and e.get("name")]
-            out["decoded_sources"].append(
-                {"service": "310700", "domain": "VCD_CAN_B_Soll_Konfiguration",
-                 "label": "CAN-B Soll Konfiguration"})
-        except Exception as e:  # noqa: BLE001
-            out["ecu_error"] = str(e)
-        actual = {e["name"] for e in out["can_ist"] if e.get("present")}
-        configured = {e["name"] for e in out["ecus"] if e.get("present")}
+        for phase in ("actual", "configured"):
+            definition = spec.get(phase, {})
+            if not isinstance(definition, dict) or not definition.get("request"):
+                continue
+            try:
+                request = definition["request"]
+                resp = cl.raw_request(bytes.fromhex(request))
+                result_key = definition.get("result_key", phase)
+                out["gateway_raw"][definition.get("raw_key", request)] = resp.hex().upper()
+                out[result_key] = _decode_can_b_bitmap(
+                    resp[int(definition.get("payload_offset", 0)):], request,
+                    definition["ecu"], definition["domain"],
+                )
+                out["decoded_sources"].append({
+                    "service": request, "domain": definition.get("domain"),
+                    "label": definition.get("label", request),
+                })
+            except Exception as e:  # noqa: BLE001
+                out[f"{phase}_error"] = str(e)
+        configured_key = spec.get("configured", {}).get("result_key", "ecus")
+        out["modules"] = [
+            _gateway_module(e["name"], e["present"])
+            for e in out.get(configured_key, []) if e["present"] and e.get("name")
+        ]
+        actual_key = spec.get("actual", {}).get("result_key", "can_ist")
+        actual = {e["name"] for e in out.get(actual_key, []) if e.get("present")}
+        configured = {
+            e["name"] for e in out.get(configured_key, []) if e.get("present")
+        }
         if actual or configured:
             out["can_compare"] = {
                 "actual": sorted(actual),
@@ -659,7 +787,7 @@ def gateway_info():
 
 @app.get("/api/modules")
 def get_modules(chassis: str | None = None):
-    return {"modules": modules_for(chassis)}
+    return {"modules": modules_for(chassis), "profile": profile_info()}
 
 
 @app.get("/api/measure/ecus")
@@ -798,6 +926,30 @@ def flash_cff(name: str):
     if not info:
         return JSONResponse({"error": "not found"}, status_code=404)
     return info
+
+
+@app.get("/api/flash/cff/{name}/hex")
+def flash_cff_hex(name: str, offset: int = 0, length: int = 512):
+    """Read-only byte slice of a real CFF file for the hex viewer."""
+    from .mb import flash
+    res = flash.cff_bytes(name, offset, length)
+    if not res:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return res
+
+
+@app.get("/api/flash/cff/{name}/xml")
+def flash_cff_xml(name: str):
+    """CFF container laid out as XML (element-per-tag), read-only."""
+    from fastapi.responses import Response
+    from .mb import flash
+    try:
+        xml = flash.cff_xml(name)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=500)
+    if xml is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.get("/api/flash/versions")
@@ -1051,6 +1203,18 @@ def coding_domains(module: str | None = None):
     ecu = _ecu_name_for(module) or module
     return {"ecu": ecu, "available": varcoding.available(),
             "domains": varcoding.list_domains(ecu) if ecu else []}
+
+
+@app.get("/api/coding/xml")
+def coding_xml(module: str | None = None):
+    """CBF variant-coding structure laid out as XML (CxF-Viewer style), read-only."""
+    from fastapi.responses import Response
+    from .mb import varcoding
+    ecu = _ecu_name_for(module) or module
+    xml = varcoding.coding_xml(ecu) if ecu else None
+    if xml is None:
+        return JSONResponse({"error": "domain/CBF not found"}, status_code=404)
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.get("/api/coding/read")

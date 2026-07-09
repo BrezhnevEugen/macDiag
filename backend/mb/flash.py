@@ -83,7 +83,35 @@ def cff_info(name: str) -> dict | None:
     p = _index().get(name)
     if not p:
         return None
-    return _cff.parse_cff(p)
+    info = _cff.parse_cff(p)
+    try:                                   # real binary structure (blocks/segments)
+        info["flash"] = _cff.parse_flash_file(p)
+    except Exception as e:  # noqa: BLE001
+        info["flash"] = {"error": str(e)}
+    return info
+
+
+def cff_xml(name: str) -> str | None:
+    """Lay the CFF container out as XML (element-per-tag), like the old plugin."""
+    p = _index().get(name)
+    if not p:
+        return None
+    return _cff.flash_to_xml(name, _cff.parse_flash_file(p))
+
+
+def cff_bytes(name: str, offset: int = 0, length: int = 512) -> dict | None:
+    """Read a slice of the actual CFF file for the hex viewer (read-only)."""
+    p = _index().get(name)
+    if not p:
+        return None
+    length = max(1, min(int(length), 4096))
+    size = p.stat().st_size
+    offset = max(0, min(int(offset), size))
+    with open(p, "rb") as f:
+        f.seek(offset)
+        chunk = f.read(length)
+    return {"name": name, "offset": offset, "length": len(chunk),
+            "total": size, "hex": chunk.hex().upper()}
 
 
 # --- ECU read-only checks (over diagnostics) --------------------------------

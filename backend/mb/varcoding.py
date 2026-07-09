@@ -102,6 +102,33 @@ def decode(ecu: str, domain: str, coding: bytes) -> dict | None:
             "coding": coding.hex().upper(), "fragments": frags}
 
 
+def coding_xml(ecu: str) -> str | None:
+    """Lay the CBF's variant-coding structure out as XML, element-per-tag
+    (domains -> fragments -> bit position/length -> options) - the CxF-Viewer
+    style 'which bytes mean what' dump, from the static CBF (no live values)."""
+    from xml.sax.saxutils import escape, quoteattr
+    res = _parsed(ecu)
+    if not res:
+        return None
+    domains = [d for d in res["domains"] if "error" not in d]
+    L = ['<?xml version="1.0" encoding="UTF-8"?>',
+         f'<CaesarCbfCoding ecu={quoteattr(ecu)} domains="{len(domains)}">']
+    for d in domains:
+        frags = [vc.decode_fragment(f, bytes(d["dump_size"])) for f in d["fragments"]]
+        L.append(f'  <VcDomain name={quoteattr(d["domain"])} dumpSize="{d["dump_size"]}" '
+                 f'readService={quoteattr(d.get("read_service") or "")} '
+                 f'writeService={quoteattr(d.get("write_service") or "")}>')
+        for fr in frags:
+            L.append(f'    <Fragment name={quoteattr(str(fr.get("name") or ""))} '
+                     f'byteBitPos="{fr.get("byte_bit_pos")}" bitLength="{fr.get("bit_length")}">')
+            for i, opt in enumerate(fr.get("options") or []):
+                L.append(f'      <Option index="{i}">{escape(str(opt))}</Option>')
+            L.append('    </Fragment>')
+        L.append('  </VcDomain>')
+    L.append('</CaesarCbfCoding>')
+    return "\n".join(L)
+
+
 def encode(ecu: str, domain: str, coding: bytes,
            fragment_name: str, option: str) -> bytes | None:
     d = _find_domain(ecu, domain)

@@ -8,12 +8,10 @@ Data sources
    (from the CBF communication template), MB part numbers, variants, bus speeds.
    This is the source of truth for *which* ECU speaks *which* protocol.
 
-2. `CORE` below - a curated list mapping the pickable W221/X164 control units to
-   their diagnostic CAN request/response IDs and a human label. The CAN IDs are
-   the standard MB 11-bit diagnostic addressing for these chassis and are marked
-   `id_source: "standard"` - VERIFY against the car (they are NOT yet extracted
-   from the CBF comparam tables; a Vediamo comm-trace is the easiest way to
-   confirm the exact IDs on the wire).
+2. A vehicle profile JSON (`profiles/w221_x164.json` by default) - user-editable
+   aliases, labels and fallback CAN request/response IDs. Select another profile
+   without changing code with `MACDIAG_PROFILE_PATH=/path/to/profile.json`.
+   CBF-derived identifiers always override the profile values.
 
 NOTE on chassis association: MB part numbers overlap across Baureihen, so the
 chassis is NOT inferred from the part-number prefix. It comes from BRxxx/Wxxx
@@ -23,11 +21,16 @@ references inside each CBF and from ECU naming (see tools/parse_cbf.py).
 from __future__ import annotations
 
 import json
+import os
+import threading
 from pathlib import Path
 
 from . import ecu_db
 
 _CATALOG_PATH = Path(__file__).with_name("vediamo_catalog.json")
+_PROFILES_DIR = Path(__file__).with_name("profiles")
+_DEFAULT_PROFILE_PATH = _PROFILES_DIR / "w221_x164.json"
+_PROFILE_LOCK = threading.RLock()
 
 
 def _load_catalog() -> dict:
@@ -50,33 +53,101 @@ def _load_catalog() -> dict:
 CATALOG = _load_catalog()
 
 
-# Curated pickable modules. `cbf` links to a real ECU in the catalog; protocol,
-# part numbers and template are overlaid from there when available.
-CORE = [
-    # X164 (GL) core
-    {"id": "ezs",  "cbf": "EZS164", "name": "EZS / EIS (ignition, gateway)", "tx": 0x7E4, "rx": 0x7EC, "chassis": ["X164"]},
-    {"id": "ki",   "cbf": "KI164",  "name": "Instrument cluster (KI)",       "tx": 0x7C4, "rx": 0x7CC, "chassis": ["X164"]},
-    {"id": "samv", "cbf": "SAMV164","name": "Front SAM (SAM-V)",             "tx": 0x7C0, "rx": 0x7C8, "chassis": ["X164"]},
-    {"id": "samh", "cbf": "SAMH164","name": "Rear SAM (SAM-H)",              "tx": 0x7C1, "rx": 0x7C9, "chassis": ["X164"]},
-    {"id": "kla",  "cbf": "KLA164", "name": "Climate control (KLA)",         "tx": 0x7C3, "rx": 0x7CB, "chassis": ["X164"]},
-    {"id": "tcm",  "cbf": "TCM164", "name": "7G-Tronic transmission (VGS)",  "tx": 0x7E1, "rx": 0x7E9, "chassis": ["X164"]},
-    {"id": "zgw",  "cbf": "ZGW164", "name": "Central gateway (ZGW)",         "tx": 0x7E7, "rx": 0x7EF, "chassis": ["X164"]},
-    {"id": "mrm",  "cbf": "MRM164", "name": "Multifunction camera/relay (MRM)", "tx": 0x7C6, "rx": 0x7CE, "chassis": ["X164"]},
-    {"id": "rbs",  "cbf": "RBS164", "name": "Tyre pressure / RBS",           "tx": 0x7C2, "rx": 0x7CA, "chassis": ["X164"]},
-    {"id": "fscm", "cbf": "FSCM164HY", "name": "Fuel system control (FSCM)", "tx": 0x7C5, "rx": 0x7CD, "chassis": ["X164"]},
+def _profile_path() -> Path:
+    return Path(os.environ.get("MACDIAG_PROFILE_PATH", str(_DEFAULT_PROFILE_PATH)))
 
-    # Engine @ 0x7E0 — only one is fitted (petrol ME-SFI *or* diesel CDI). They
-    # share the same diagnostic address, so just two variants are listed.
-    {"id": "me97", "cbf": "ME97",   "name": "ME-SFI engine (M272/M273 petrol)", "tx": 0x7E0, "rx": 0x7E8, "chassis": ["W221", "X164"]},
-    {"id": "crd3", "cbf": "CRD3",   "name": "CDI engine (OM642 diesel CRD3)","tx": 0x7E0, "rx": 0x7E8, "chassis": ["W221", "X164"]},
-    {"id": "esp",  "cbf": "ESP9MFA","name": "ESP 9 / ABS / BAS",             "tx": 0x7E5, "rx": 0x7ED, "chassis": ["W221", "X164"]},
 
-    # W221 specific
-    {"id": "eis447", "cbf": "EIS447", "name": "EIS (W221 facelift)",         "tx": 0x7E4, "rx": 0x7EC, "chassis": ["W221"]},
-    {"id": "ic204",  "cbf": "IC_204", "name": "Instrument cluster (W221)",   "tx": 0x7C4, "rx": 0x7CC, "chassis": ["W221"]},
-    {"id": "eps218", "cbf": "EPS218", "name": "Electric steering lock (EPS)","tx": 0x7C7, "rx": 0x7CF, "chassis": ["W221"]},
-    {"id": "fscm221","cbf": "FSCM221","name": "Fuel system control (W221)",  "tx": 0x7C5, "rx": 0x7CD, "chassis": ["W221"]},
-]
+def _load_profile(path: Path) -> dict:
+    """Load a vehicle profile without turning malformed local data into a crash."""
+    result = {
+        "id": None, "label": None, "path": str(path), "modules": [],
+        "simulator": {}, "gateway_probes": {}, "gateway_info": {}, "error": None,
+    }
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or not isinstance(raw.get("modules"), list):
+            raise ValueError("profile must be an object with a modules array")
+        ids = set()
+        modules = []
+        for item in raw["modules"]:
+            if not isinstance(item, dict) or not item.get("id") or not item.get("cbf"):
+                raise ValueError("each profile module needs id and cbf")
+            if item["id"] in ids:
+                raise ValueError(f"duplicate module id: {item['id']}")
+            ids.add(item["id"])
+            modules.append(dict(item))
+        simulator = raw.get("simulator", {})
+        gateway_probes = raw.get("gateway_probes", {})
+        gateway_info = raw.get("gateway_info", {})
+        if not all(isinstance(value, dict) for value in (
+                simulator, gateway_probes, gateway_info)):
+            raise ValueError("simulator, gateway_probes and gateway_info must be objects")
+        result.update({
+            "id": raw.get("id"), "label": raw.get("label"), "modules": modules,
+            "simulator": simulator, "gateway_probes": gateway_probes,
+            "gateway_info": gateway_info,
+        })
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        result["error"] = str(e)
+    return result
+
+
+PROFILE = _load_profile(_profile_path())
+MODULES: list[dict] = []
+MODULES_BY_ID: dict[str, dict] = {}
+
+
+def profile_info() -> dict:
+    """Profile metadata safe to expose in the API and diagnostics UI."""
+    with _PROFILE_LOCK:
+        return {key: PROFILE[key] for key in ("id", "label", "path", "error")} | {
+            "module_count": len(PROFILE["modules"]),
+            "source": "packaged" if Path(PROFILE["path"]).parent == _PROFILES_DIR else "external",
+        }
+
+
+def simulator_profile() -> dict:
+    """Current simulator scenario, owned by the active vehicle profile."""
+    with _PROFILE_LOCK:
+        return json.loads(json.dumps(PROFILE["simulator"]))
+
+
+def gateway_probes() -> dict:
+    """Read-only gateway probe definitions for the active vehicle profile."""
+    with _PROFILE_LOCK:
+        return json.loads(json.dumps(PROFILE["gateway_probes"]))
+
+
+def gateway_info_spec() -> dict:
+    """Read-only gateway identity/configuration specification from the profile."""
+    with _PROFILE_LOCK:
+        return json.loads(json.dumps(PROFILE["gateway_info"]))
+
+
+def available_profiles() -> list[dict]:
+    """Only packaged profiles are selectable from the UI; no arbitrary paths."""
+    profiles = []
+    for path in sorted(_PROFILES_DIR.glob("*.json")):
+        profile = _load_profile(path)
+        if profile["error"] is None and profile["id"]:
+            profiles.append({
+                "id": profile["id"], "label": profile["label"] or profile["id"],
+                "module_count": len(profile["modules"]),
+            })
+    return profiles
+
+
+def select_profile(profile_id: str) -> dict | None:
+    """Switch to a packaged profile without accepting a filesystem path from UI."""
+    for path in _PROFILES_DIR.glob("*.json"):
+        candidate = _load_profile(path)
+        if candidate["error"] is None and candidate["id"] == profile_id:
+            with _PROFILE_LOCK:
+                global PROFILE
+                PROFILE = candidate
+                _rebuild_registry()
+                return profile_info()
+    return None
 
 
 def _enrich(entry: dict) -> dict:
@@ -89,20 +160,27 @@ def _enrich(entry: dict) -> dict:
     m["bus"] = meta.get("bus", {})
     m["baudrate"] = meta.get("baudrate")
     m["can_global"] = meta.get("can_global")
-    # Prefer REAL CAN ids decoded from the CBF comparam tables; fall back to the
-    # curated standard addressing only when the CBF didn't yield them.
+    # Prefer REAL CAN ids decoded from CBF comparam tables; fallback identifiers
+    # are profile data, never vehicle values embedded in executable code.
     if meta.get("can_request"):
         m["tx"] = meta["can_request"]
         m["rx"] = meta["can_response"]
         m["id_source"] = "cbf"           # extracted from Vediamo CBF
     else:
-        m["id_source"] = "standard"      # needs verification
+        m["id_source"] = "profile"       # needs verification against the car
     m["in_catalog"] = bool(meta)
     return m
 
 
-MODULES = [_enrich(e) for e in CORE]
-MODULES_BY_ID = {m["id"]: m for m in MODULES}
+def _rebuild_registry() -> None:
+    """Mutate exported collections so existing importers see a profile reload."""
+    enriched = [_enrich(e) for e in PROFILE["modules"]]
+    MODULES[:] = enriched
+    MODULES_BY_ID.clear()
+    MODULES_BY_ID.update({m["id"]: m for m in MODULES})
+
+
+_rebuild_registry()
 
 
 def modules_for(chassis: str | None = None):

@@ -1,0 +1,132 @@
+{
+  "schema": 2,
+  "id": "w221-x164",
+  "label": "Mercedes-Benz W221 / X164",
+  "modules": [
+    {"id": "ezs", "cbf": "EZS164", "name": "EZS / EIS (ignition, gateway)", "tx": 2020, "rx": 2028, "chassis": ["X164"], "group": "body"},
+    {"id": "ki", "cbf": "KI164", "name": "Instrument cluster (KI)", "tx": 1988, "rx": 1996, "chassis": ["X164"], "group": "info"},
+    {"id": "samv", "cbf": "SAMV164", "name": "Front SAM (SAM-V)", "tx": 1984, "rx": 1992, "chassis": ["X164"], "group": "body"},
+    {"id": "samh", "cbf": "SAMH164", "name": "Rear SAM (SAM-H)", "tx": 1985, "rx": 1993, "chassis": ["X164"], "group": "body"},
+    {"id": "kla", "cbf": "KLA164", "name": "Climate control (KLA)", "tx": 1987, "rx": 1995, "chassis": ["X164"], "group": "body"},
+    {"id": "tcm", "cbf": "TCM164", "name": "7G-Tronic transmission (VGS)", "tx": 2017, "rx": 2025, "chassis": ["X164"], "group": "powertrain"},
+    {"id": "zgw", "cbf": "ZGW164", "name": "Central gateway (ZGW)", "tx": 2023, "rx": 2031, "chassis": ["X164"], "group": "body"},
+    {"id": "mrm", "cbf": "MRM164", "name": "Multifunction camera/relay (MRM)", "tx": 1990, "rx": 1998, "chassis": ["X164"], "group": "body"},
+    {"id": "rbs", "cbf": "RBS164", "name": "Tyre pressure / RBS", "tx": 1986, "rx": 1994, "chassis": ["X164"], "group": "chassis"},
+    {"id": "fscm", "cbf": "FSCM164HY", "name": "Fuel system control (FSCM)", "tx": 1989, "rx": 1997, "chassis": ["X164"], "group": "powertrain"},
+    {"id": "me97", "cbf": "ME97", "name": "ME-SFI engine (M272/M273 petrol)", "tx": 2016, "rx": 2024, "chassis": ["W221", "X164"], "group": "powertrain"},
+    {"id": "crd3", "cbf": "CRD3", "name": "CDI engine (OM642 diesel CRD3)", "tx": 2016, "rx": 2024, "chassis": ["W221", "X164"], "group": "powertrain"},
+    {"id": "esp", "cbf": "ESP9MFA", "name": "ESP 9 / ABS / BAS", "tx": 2021, "rx": 2029, "chassis": ["W221", "X164"], "group": "chassis"},
+    {"id": "eis447", "cbf": "EIS447", "name": "EIS (W221 facelift)", "tx": 2020, "rx": 2028, "chassis": ["W221"], "group": "body"},
+    {"id": "ic204", "cbf": "IC_204", "name": "Instrument cluster (W221)", "tx": 1988, "rx": 1996, "chassis": ["W221"], "group": "info"},
+    {"id": "eps218", "cbf": "EPS218", "name": "Electric steering lock (EPS)", "tx": 1991, "rx": 1999, "chassis": ["W221"], "group": "body"},
+    {"id": "fscm221", "cbf": "FSCM221", "name": "Fuel system control (W221)", "tx": 1989, "rx": 1997, "chassis": ["W221"], "group": "powertrain"}
+  ],
+  "gateway_probes": {
+    "zgw": {
+      "session": "1092",
+      "requests": [
+        {"label": "CAN-Ist config (установлено)", "request": "310800"},
+        {"label": "CAN-Soll config (должно быть)", "request": "310700"},
+        {"label": "CAN error status", "request": "310500"},
+        {"label": "variant code 38B", "request": "300101"},
+        {"label": "ZGW system state", "request": "2300100D01"},
+        {"label": "version (OS)", "request": "21E0"}
+      ]
+    },
+    "ezs": {
+      "session": "1092",
+      "requests": [
+        {"label": "VIN 1A90", "request": "1A90"},
+        {"label": "VIN/FIN 2105", "request": "2105"},
+        {"label": "version", "request": "21E0"}
+      ]
+    },
+    "default": {
+      "session": "1092",
+      "requests": [
+        {"label": "VIN 1A90", "request": "1A90"},
+        {"label": "version 21E0", "request": "21E0"},
+        {"label": "variant code 300101", "request": "300101"}
+      ]
+    }
+  },
+  "gateway_info": {
+    "target": "zgw",
+    "session": "1092",
+    "global_code": {
+      "request": "300101",
+      "ecu": "ZGW164",
+      "domain": "VCD_Global_Code",
+      "payload_offset": 3,
+      "identity_fields": [
+        {"prefix": "Motor", "key": "engine"},
+        {"prefix": "Baureihe", "key": "chassis"},
+        {"prefix": "Karosserie", "key": "body"}
+      ]
+    },
+    "actual": {
+      "request": "310800",
+      "ecu": "ZGW164",
+      "payload_offset": 2,
+      "result_key": "can_ist",
+      "raw_key": "can_ist_310800",
+      "domain": "VCD_CAN_B_Soll_Konfiguration",
+      "label": "CAN-B Ist Konfiguration"
+    },
+    "configured": {
+      "request": "310700",
+      "ecu": "ZGW164",
+      "payload_offset": 2,
+      "result_key": "ecus",
+      "raw_key": "can_soll_310700",
+      "domain": "VCD_CAN_B_Soll_Konfiguration",
+      "label": "CAN-B Soll Konfiguration"
+    }
+  },
+  "simulator": {
+    "identity": {
+      "obd_vin": "4JGBF71E07AEMUL8R",
+      "mb_vin": "WDC1641541AEMUL8R",
+      "dids": {
+        "F190": "WDD2211711AEMUL8R",
+        "F195": "02/14",
+        "F18C": "EZS-W221-REVE",
+        "F187": "A2215403345"
+      },
+      "local_ids": {"05": "5A", "0C": "08CA"}
+    },
+    "demo_dtcs": {
+      "engine": ["P0170", "P0300"],
+      "vgs": ["P0715"],
+      "zgw": ["U0100"]
+    },
+    "tx_roles": {"2016": "engine", "2017": "vgs", "1252": "zgw", "2023": "zgw"},
+    "live_pids": {
+      "05": {"base": 128, "amplitude": 8, "period": 7, "width": 1},
+      "0C": {"base": 8800, "amplitude": 2800, "period": 3, "width": 2},
+      "0D": {"base": 60, "amplitude": 50, "period": 11, "width": 1, "minimum": 0},
+      "0F": {"base": 70, "amplitude": 5, "period": 13, "width": 1},
+      "11": {"base": 35, "amplitude": 15, "period": 5, "width": 1},
+      "2F": {"base": 70, "amplitude": 25, "period": 29, "width": 1},
+      "42": {"base": 13800, "amplitude": 400, "period": 4, "width": 2}
+    },
+    "capture": {
+      "1248": {"name": "EZS", "resp": {"0902": "7F0911", "1092": "7F1012", "18FFFF00": "7F1811", "1A90": "7F1A11", "2105": "7F2111", "2106": "7F2111", "2190": "7F2111", "21E0": "7F2111", "22F190": null, "3E00": "7E00"}},
+      "1252": {"name": "ZGW", "resp": {"03": "7F0380", "0902": "7F0980", "1092": "5092", "18FFFF00": "7F1812", "1902FF": "7F1980", "1A90": "7F1A12", "21E0": "61E0681222080114034302490233014999990202", "22F190": "7F2280", "2300100D01": "6302", "300101": "700101110A20938AFA91921800000200000000050018000080680D0000000000000000000000000000", "310500": "71050000000000000000", "310700": "71070080BD75DAE940402701000000000000", "310800": "7108BD359A2804400600", "3E00": "7F3E12"}},
+      "1379": {"name": "SAM-H", "resp": {"18FFFF00": "7F1812", "3E00": "7F3E12"}},
+      "1460": {"name": "KI", "resp": {"18FFFF00": null, "3E00": "7F3E12"}},
+      "1546": {"name": "KI(W221)", "resp": {}, "silent": true},
+      "1554": {"name": "EIS447(W221)", "resp": {}, "silent": true},
+      "1586": {"name": "ESP", "resp": {}, "silent": true},
+      "1634": {"name": "SAM-V", "resp": {"18FFFF00": null, "3E00": "7F3E12"}},
+      "1714": {"name": "EPS(W221)", "resp": {}, "silent": true},
+      "1786": {"name": "FSCM(W221)", "resp": {}, "silent": true},
+      "1912": {"name": "FSCM", "resp": {}, "silent": true},
+      "1924": {"name": "RBS", "resp": {"18FFFF00": "7F1812", "3E00": "7F3E12"}},
+      "1937": {"name": "KLA", "resp": {"18FFFF00": "7F1812", "3E00": "7F3E12"}},
+      "1938": {"name": "MRM", "resp": {"18FFFF00": "7F1812", "3E00": "7F3E12"}},
+      "2016": {"name": "engine", "resp": {"03": "4300", "0902": null, "18FFFF00": "7F1812", "1902FF": "7F1911", "1A90": null, "22F190": null, "3E00": "7F3E12"}},
+      "2017": {"name": "VGS", "resp": {"03": "7F0311", "18FFFF00": "7F1812", "1902FF": "7F1911", "3E00": "7E00"}}
+    }
+  }
+}

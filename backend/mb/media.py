@@ -66,13 +66,19 @@ _DRAW_RE = re.compile(
     r"drawNewEmpty\(\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'[^']*'\s*,\s*'([^']*)'")
 
 
+# Schematic sources ship with the project under data/; env vars override.
+_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DEFAULT_DIRS = {
+    "starfinder": _DATA_DIR / "starfinder",
+    "wis": _DATA_DIR / "dist_raw" / "docs_and_tables" / "загрузки" / "WIS_0420_1of1",
+}
+
+
 def _root(name: str) -> Path | None:
     env = {"starfinder": "MACDIAG_STARFINDER_DIR", "wis": "MACDIAG_WIS_DIR"}[name]
     p = os.environ.get(env)
-    if not p:
-        return None
-    root = Path(p)
-    return root if root.exists() else None
+    root = Path(p) if p else _DEFAULT_DIRS.get(name)
+    return root if (root and root.exists()) else None
 
 
 def chassis_model(code: str) -> str:

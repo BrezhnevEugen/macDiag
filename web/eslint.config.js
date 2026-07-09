@@ -17,5 +17,11 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // This app deliberately synchronizes API state with controls in effects.
+      // It does not use the React Compiler, whose stricter constraint this rule
+      // is designed to protect; keep the other hooks rules enabled.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

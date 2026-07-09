@@ -24,7 +24,33 @@ def client():
 def test_status(client):
     r = client.get("/api/status")
     assert r.status_code == 200
-    assert r.json()["mode"] == "sim"
+    body = r.json()
+    assert body["mode"] == "sim"
+    assert body["profile"]["id"] == "w221-x164"
+    assert body["adapter"]["kind"] == "simulator"
+    assert "ISO15765" in body["adapter"]["capabilities"]["protocols"]
+
+
+def test_adapter_self_test_reports_transport_health(client):
+    r = client.post("/api/adapter/self-test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["connected"] is True
+    assert body["channel"] == {"protocol": "ISO15765", "baudrate": 500000}
+    checks = {check["id"]: check for check in body["checks"]}
+    assert checks["transport"]["status"] == "ok"
+    assert checks["channel"]["status"] == "ok"
+    assert checks["voltage"]["status"] == "ok"
+
+    status = client.get("/api/adapter/status")
+    assert status.status_code == 200
+    assert status.json()["version"]["firmware"] == "OP2-SIM"
+
+    legacy = client.get("/api/adapter/info")
+    assert legacy.status_code == 200
+    assert legacy.json()["adapter"]["api"] == "04.04"
+    assert legacy.json()["transport"]["kind"] == "simulator"
 
 
 def test_connect_reports_voltage(client):
@@ -50,7 +76,7 @@ def test_dtc_read_and_clear(client):
     assert r.status_code == 200
     assert body["readable"] is True
     codes = {d["code"] for d in body["dtcs"]}
-    assert {"B1535", "C1525"} <= codes          # simulator's two seeded faults
+    assert {"P0170", "P0300"} <= codes           # engine demo scenario's seeded faults
     assert all(d.get("description") for d in body["dtcs"])
 
     assert client.post("/api/dtc/clear").status_code == 200
@@ -115,7 +141,25 @@ def test_ws_live_stream_and_pid_selection(client):
 def test_catalog_endpoints_do_not_crash_without_db(client):
     # with or without ecu_db.sqlite these must answer cleanly
     assert client.get("/api/db/stats").status_code == 200
-    assert client.get("/api/modules").status_code == 200
+    modules = client.get("/api/modules")
+    assert modules.status_code == 200
+    assert modules.json()["profile"]["id"] == "w221-x164"
+    assert modules.json()["profile"]["module_count"] > 0
+
+
+def test_packaged_profile_can_be_listed_and_selected_while_disconnected(client):
+    client.post("/api/disconnect")
+    listed = client.get("/api/profiles")
+    assert listed.status_code == 200
+    assert any(p["id"] == "w221-x164" for p in listed.json()["profiles"])
+
+    selected = client.post("/api/profile", params={"name": "w221-x164"})
+    assert selected.status_code == 200
+    assert selected.json()["profile"]["id"] == "w221-x164"
+
+    client.post("/api/connect")
+    blocked = client.post("/api/profile", params={"name": "w221-x164"})
+    assert blocked.status_code == 409
 
 
 def test_gateway_modules_are_source_of_truth(client):

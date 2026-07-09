@@ -277,13 +277,17 @@
 .mac-ecu:hover { border-color: var(--accent); transform: translateY(-2px); }
 .mac-ecu.off { opacity: .55; cursor: default; }
 .mac-ecu.off:hover { border-color: var(--line); transform: none; }
+/* an ECU with stored DTCs reads red: tinted surface + danger border */
+.mac-ecu.hasfault { background: var(--danger-surface); border-color: var(--danger-border); }
+.mac-ecu.hasfault:hover { border-color: var(--danger); }
+.mac-ecu.hasfault .mac-ecu-meta { color: var(--danger); opacity: .85; }
 .mac-ecu-top { display: flex; align-items: center; gap: 9px; }
 .mac-ecu-name { font-weight: 600; font-size: 14px; }
 .mac-ecu-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
 .mac-proto { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; text-transform: uppercase; padding: 2px 7px; border-radius: var(--r-code); }
 .mac-proto.uds { background: var(--uds-surface); color: var(--accent-2); }
 .mac-proto.kwp { background: var(--kwp-surface); color: var(--warn); }
-.mac-faults { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-surface); border: 1px solid var(--warn-border); padding: 1px 8px; border-radius: 20px; }
+.mac-faults { margin-left: auto; font-size: 11px; font-weight: 700; color: #fff; background: var(--danger); border: 1px solid var(--danger); padding: 1px 8px; border-radius: 20px; }
 .mac-statusdot.sm { width: 8px; height: 8px; }
 
 /* ECU functional groups (DAS-style) */
@@ -398,6 +402,9 @@
 .mac-mini .l { font-size: 11.5px; color: var(--muted); }
 .mac-mini .v { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin-top: 4px; }
 .mac-mini .v small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+.mac-mini.clickable { cursor: pointer; transition: border-color .15s, background .15s; }
+.mac-mini.clickable:hover { border-color: var(--accent); }
+.mac-mini.on { border-color: var(--accent); background: var(--uds-surface); }
 .mac-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .mac-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--txt-2); line-height: 1.45; }
 .mac-list.steps li { counter-increment: s; }
