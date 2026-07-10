@@ -655,6 +655,10 @@ function Coding({ connected, writeSafety }) {
   const [saving, setSaving] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
   const [writeResult, setWriteResult] = React.useState(null);
+  const [showBackups, setShowBackups] = React.useState(false);
+  const [backups, setBackups] = React.useState(null);
+  const [backupLoading, setBackupLoading] = React.useState(false);
+  const [backupErr, setBackupErr] = React.useState("");
   const [err, setErr] = React.useState("");
 
   React.useEffect(() => { apiGet("/api/modules").then((d) => setMods(d.modules || [])).catch(() => {}); }, []);
@@ -701,6 +705,19 @@ function Coding({ connected, writeSafety }) {
     setEditing("");
   }
 
+  async function loadBackups() {
+    setBackupLoading(true); setBackupErr("");
+    try { setBackups(await apiGet("/api/coding/backups?limit=20")); }
+    catch (e) { setBackupErr("Не удалось загрузить журнал: " + String(e)); }
+    setBackupLoading(false);
+  }
+
+  async function toggleBackups() {
+    if (showBackups) { setShowBackups(false); return; }
+    setShowBackups(true);
+    await loadBackups();
+  }
+
   async function applyCoding() {
     if (!res?.coding || !canWrite || res.coding === originalCoding) return;
     setSaving(true); setErr(""); setWriteResult(null);
@@ -709,6 +726,7 @@ function Coding({ connected, writeSafety }) {
         module: mod, domain, coding_hex: res.coding, unlock: true,
       });
       setWriteResult(result); setOriginalCoding(res.coding); setConfirming(false);
+      if (showBackups) await loadBackups();
     } catch (e) {
       setErr("Запись не выполнена: " + String(e));
     }
@@ -762,6 +780,11 @@ function Coding({ connected, writeSafety }) {
           <button className={"mac-btn" + (xml !== null ? " ghost" : "")} onClick={toggleXml} disabled={!mod}>
             <Ic name="book" size={15} />{xml !== null ? "Скрыть XML" : "CxF XML"}
           </button>
+          <button className={"mac-btn" + (showBackups ? " ghost" : "")} onClick={toggleBackups}
+            disabled={backupLoading}>
+            {backupLoading ? <span className="mac-spin"></span> : <Ic name="refresh" size={15} />}
+            {showBackups ? "Скрыть backups" : "Журнал backups"}
+          </button>
           <button className="mac-btn danger" onClick={() => setConfirming(true)}
             disabled={!canWrite || !dirty || loading || Boolean(editing) || saving}
             title={!canWrite ? gateHint : (!dirty ? "Сначала измени именованный параметр" : "Проверить изменения перед записью")}>
@@ -780,6 +803,50 @@ function Coding({ connected, writeSafety }) {
           <pre style={{ margin: 0, maxHeight: 360, overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.5, color: "var(--txt-2)", whiteSpace: "pre" }}>
             {xml === "" ? "загрузка…" : xml}
           </pre>
+        </div>
+      )}
+      {showBackups && (
+        <div className="mac-panel" style={{ marginBottom: 14 }}>
+          <div className="mac-hex-bar">
+            <span style={{ fontWeight: 650 }}>Журнал pre-write backup</span>
+            <span className="mac-sec-meta">последние {backups?.entries?.length || 0} записей</span>
+            <button className="mac-btn ghost" style={{ marginLeft: "auto" }} onClick={loadBackups}
+              disabled={backupLoading}>
+              {backupLoading ? <span className="mac-spin"></span> : <Ic name="refresh" size={14} />}Обновить
+            </button>
+          </div>
+          {backups?.path && <div style={{ color: "var(--muted)", fontSize: 12, margin: "8px 0 12px" }}>
+            Файл: <code>{backups.path}</code>
+          </div>}
+          {backupErr && <div className="mac-empty" style={{ color: "var(--danger)" }}>{backupErr}</div>}
+          {!backupErr && backups && backups.entries.length === 0 && (
+            <div className="mac-empty">Журнал пуст — записи появятся после первой операции кодирования.</div>
+          )}
+          {backups?.entries?.length > 0 && (
+            <div className="mac-table-wrap">
+              <table className="mac-table">
+                <thead><tr><th>Время</th><th>ЭБУ / домен</th><th>DID/LID</th><th>До записи</th><th>Целевое</th><th>Состояние</th></tr></thead>
+                <tbody>
+                  {backups.entries.map((entry, i) => (
+                    <tr key={`${entry.ts}-${i}`}>
+                      <td style={{ whiteSpace: "nowrap", color: "var(--muted)", fontSize: 12 }}>
+                        {entry.ts ? new Date(entry.ts * 1000).toLocaleString("ru-RU") : "—"}
+                      </td>
+                      <td><b>{entry.ecu || entry.module || "—"}</b><br />
+                        <span style={{ color: "var(--muted)", fontSize: 12 }}>{entry.domain || "ручная запись"}</span>
+                      </td>
+                      <td><code>{entry.did || "—"}</code></td>
+                      <td><code style={{ wordBreak: "break-all" }}>{entry.old || "—"}</code></td>
+                      <td><code style={{ wordBreak: "break-all" }}>{entry.new || "—"}</code></td>
+                      <td>{entry.read_error
+                        ? <span style={{ color: "var(--warn)" }} title={entry.read_error}>backup без чтения: {entry.read_error}</span>
+                        : <span style={{ color: "var(--ok)" }}>сохранено</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
       {err && <div className="mac-empty" style={{ color: "var(--danger)" }}>{err}</div>}
