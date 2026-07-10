@@ -12,6 +12,7 @@ services:
       MACDIAG_CFF_DIR: /data/cff
       MACDIAG_VSG_DIR: /data/vsg
       MACDIAG_MEASURE_DB: /data/measurements.sqlite
+      MACDIAG_AUDIT_FILE: /data/action_audit.jsonl
       MACDIAG_STARFINDER_DIR: /starfinder
     volumes:
       # Persistent, EXTENSIBLE data store: CBF/CFF/SMR/VSG + built DBs + StarFinder.

@@ -301,16 +301,27 @@ def _write_safety() -> dict:
     }
 
 
-def _write_guard(operation: str):
+def _audit_action(operation: str, outcome: str, module: str | None = None,
+                  **details) -> dict:
+    """Persist a write-path outcome without making logging a new failure mode."""
+    from .mb import audit
+    return audit.record(operation=operation, outcome=outcome, mode=MODE,
+                        module=module, ecu=_ecu_name_for(module), **details)
+
+
+def _write_guard(operation: str, module: str | None = None, **details):
     safety = _write_safety()
     if safety["enabled"]:
         return None
+    event = _audit_action(operation, "blocked", module,
+                          reason="hardware_write_opt_in_required", **details)
     return JSONResponse(
         {
             "error": "операция записи заблокирована в режиме реального адаптера",
             "operation": operation,
             "hint": "перезапусти backend с MACDIAG_ENABLE_WRITES=1 после проверки VIN и питания",
             "writes": safety,
+            "audit": event,
         },
         status_code=403,
     )
@@ -362,6 +373,13 @@ def clear_log():
     from .j2534.passthru import TRACE
     TRACE.clear()
     return {"ok": True}
+
+
+@app.get("/api/audit/actions")
+def action_audit(limit: int = 100):
+    """Newest ECU-changing action events (success/error/blocked), read-only."""
+    from .mb import audit
+    return {"path": str(audit.PATH), "entries": audit.recent(limit)}
 
 
 @app.post("/api/mode")
@@ -1039,17 +1057,20 @@ def read_dtc(module: str | None = None, lang: str = "ru"):
 
 @app.post("/api/dtc/clear")
 def clear_dtc(module: str | None = None):
-    blocked = _write_guard("dtc_clear")
+    blocked = _write_guard("dtc_clear", module)
     if blocked:
         return blocked
     try:
         client = _module_client(module)
         client.clear_dtcs()
-        return {"cleared": True, "module": module}
-    except HTTPException:
+        event = _audit_action("dtc_clear", "success", module)
+        return {"cleared": True, "module": module, "audit": event}
+    except HTTPException as e:
+        _audit_action("dtc_clear", "error", module, error=str(e.detail))
         raise
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": str(e)}, status_code=502)
+        event = _audit_action("dtc_clear", "error", module, error=str(e))
+        return JSONResponse({"error": str(e), "audit": event}, status_code=502)
 
 
 @app.get("/api/diag/context")
@@ -1298,7 +1319,7 @@ class ApplyReq(BaseModel):
 @app.post("/api/coding/apply")
 def coding_apply(req: ApplyReq):
     """Write an edited coding string back to the ECU (after Security Access)."""
-    blocked = _write_guard("coding_apply")
+    blocked = _write_guard("coding_apply", req.module, domain=req.domain)
     if blocked:
         return blocked
     from .mb import varcoding
@@ -1321,12 +1342,27 @@ def coding_apply(req: ApplyReq):
                               domain=req.domain, new_hex=req.coding_hex)
         sec = _security_unlock(client, req.module, level) if req.unlock else None
         client.write_did(int(use_lid, 16), coding)
+        event = _audit_action(
+            "coding_apply", "success", req.module, domain=req.domain,
+            did=f"0x{int(use_lid, 16):X}", value_bytes=len(coding),
+            backup_saved=bool(bkp.get("saved")), security_level=level if req.unlock else None,
+        )
         return {"ok": True, "write_service": meta["write_service"],
-                "lid": use_lid, "security": sec, "backup": bkp}
-    except HTTPException:
+                "lid": use_lid, "security": sec, "backup": bkp, "audit": event}
+    except HTTPException as e:
+        _audit_action("coding_apply", "error", req.module, domain=req.domain,
+                      error=str(e.detail))
         raise
     except DiagError as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+        event = _audit_action("coding_apply", "error", req.module,
+                              domain=req.domain, error=str(e))
+        return JSONResponse({"ok": False, "error": str(e), "audit": event},
+                            status_code=502)
+    except Exception as e:  # noqa: BLE001
+        event = _audit_action("coding_apply", "error", req.module,
+                              domain=req.domain, error=str(e))
+        return JSONResponse({"ok": False, "error": str(e), "audit": event},
+                            status_code=500)
 
 
 @app.get("/api/coding/backups")
@@ -1391,7 +1427,7 @@ def coding_write(req: WriteReq):
     Performs Security Access (0x27) first when the module requires it. Use with
     care: wrong values can disable an ECU. Read and save the current value first.
     """
-    blocked = _write_guard("coding_write")
+    blocked = _write_guard("coding_write", req.module, did=f"0x{req.did:X}")
     if blocked:
         return blocked
     value = _parse_hex(req.value_hex, "value_hex")      # validate before touching the ECU
@@ -1403,13 +1439,26 @@ def coding_write(req: WriteReq):
         if req.unlock:
             unlocked = _security_unlock(client, req.module, req.level)
         client.write_did(req.did, value)
-        return {"ok": True, "security": unlocked, "backup": bkp}
-    except HTTPException:
+        event = _audit_action(
+            "coding_write", "success", req.module, did=f"0x{req.did:X}",
+            value_bytes=len(value), backup_saved=bool(bkp.get("saved")),
+            security_level=req.level if req.unlock else None,
+        )
+        return {"ok": True, "security": unlocked, "backup": bkp, "audit": event}
+    except HTTPException as e:
+        _audit_action("coding_write", "error", req.module, did=f"0x{req.did:X}",
+                      error=str(e.detail))
         raise
     except DiagError as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+        event = _audit_action("coding_write", "error", req.module,
+                              did=f"0x{req.did:X}", error=str(e))
+        return JSONResponse({"ok": False, "error": str(e), "audit": event},
+                            status_code=502)
     except Exception as e:  # noqa: BLE001
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        event = _audit_action("coding_write", "error", req.module,
+                              did=f"0x{req.did:X}", error=str(e))
+        return JSONResponse({"ok": False, "error": str(e), "audit": event},
+                            status_code=500)
 
 
 # ---------------------------------------------------------------------------

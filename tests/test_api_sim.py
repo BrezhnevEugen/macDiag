@@ -69,7 +69,9 @@ def test_vehicle_info_vin(client):
     assert body["decode"]["valid"] is True
 
 
-def test_dtc_read_and_clear(client):
+def test_dtc_read_and_clear(client, tmp_path, monkeypatch):
+    from backend.mb import audit
+    monkeypatch.setattr(audit, "PATH", tmp_path / "action_audit.jsonl")
     client.post("/api/connect")
     r = client.get("/api/dtc")
     body = r.json()
@@ -79,9 +81,13 @@ def test_dtc_read_and_clear(client):
     assert {"P0170", "P0300"} <= codes           # engine demo scenario's seeded faults
     assert all(d.get("description") for d in body["dtcs"])
 
-    assert client.post("/api/dtc/clear").status_code == 200
+    cleared = client.post("/api/dtc/clear")
+    assert cleared.status_code == 200
+    assert cleared.json()["audit"]["outcome"] == "success"
     after = client.get("/api/dtc").json()
     assert after["dtcs"] == []
+    events = client.get("/api/audit/actions").json()["entries"]
+    assert events[0]["operation"] == "dtc_clear"
 
 
 def test_identify(client):
@@ -102,8 +108,9 @@ def test_security_unlock_sim(client):
 
 
 def test_coding_write_backs_up_old_value(client, tmp_path, monkeypatch):
-    from backend.mb import backup
+    from backend.mb import audit, backup
     monkeypatch.setattr(backup, "PATH", tmp_path / "backups.jsonl")
+    monkeypatch.setattr(audit, "PATH", tmp_path / "action_audit.jsonl")
     client.post("/api/connect")
     r = client.post("/api/coding/write",
                     json={"did": 0x0110, "value_hex": "AABB", "unlock": True})
@@ -115,6 +122,9 @@ def test_coding_write_backs_up_old_value(client, tmp_path, monkeypatch):
     assert bkp["old"] or bkp["read_error"]      # old value read, or failure recorded
     entries = client.get("/api/coding/backups").json()["entries"]
     assert entries and entries[0]["new"] == "AABB"
+    events = client.get("/api/audit/actions").json()["entries"]
+    assert events[0]["operation"] == "coding_write"
+    assert events[0]["outcome"] == "success"
 
 
 def test_coding_write_validates_hex(client):
@@ -124,7 +134,9 @@ def test_coding_write_validates_hex(client):
         "malformed hex must be a client error, not a 5xx")
 
 
-def test_hardware_writes_require_explicit_server_opt_in(client, monkeypatch):
+def test_hardware_writes_require_explicit_server_opt_in(client, tmp_path, monkeypatch):
+    from backend.mb import audit
+    monkeypatch.setattr(audit, "PATH", tmp_path / "action_audit.jsonl")
     monkeypatch.setattr(main, "MODE", "hw")
     monkeypatch.delenv("MACDIAG_ENABLE_WRITES", raising=False)
 
@@ -142,6 +154,12 @@ def test_hardware_writes_require_explicit_server_opt_in(client, monkeypatch):
     assert dtc.json()["operation"] == "dtc_clear"
     assert apply.json()["operation"] == "coding_apply"
     assert coding.json()["operation"] == "coding_write"
+    events = client.get("/api/audit/actions").json()["entries"]
+    assert [(event["operation"], event["outcome"]) for event in events] == [
+        ("coding_write", "blocked"),
+        ("coding_apply", "blocked"),
+        ("dtc_clear", "blocked"),
+    ]
 
 
 def test_ws_live_stream_and_pid_selection(client):
