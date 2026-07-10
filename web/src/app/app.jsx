@@ -131,7 +131,7 @@ function ModernApp() {
           {tab === "dtc" && <Dtc connected={connected} initialModule={dtcModule}
             writeSafety={writeSafety} />}
           {tab === "modules" && <Modules />}
-          {tab === "coding" && <Coding connected={connected} />}
+          {tab === "coding" && <Coding connected={connected} writeSafety={writeSafety} />}
           {tab === "flash" && <Flash connected={connected} />}
           {tab === "refs" && <Refs />}
           {tab === "dict" && <Dict lang={lang} />}

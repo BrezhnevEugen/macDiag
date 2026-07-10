@@ -18,6 +18,31 @@ CRD3 = ROOT / "data" / "cbf" / "CRD3_DEV.CBF"
 CEPC_MFA = ROOT / "data" / "cbf" / "CEPC_MFA.cbf"
 
 
+def test_varcoding_domain_list_keeps_first_duplicate(monkeypatch):
+    from backend.mb import varcoding
+
+    first = {
+        "domain": "VCD_Demo", "dump_size": 2,
+        "read_service": "RVC_First", "write_service": "WVC_First",
+        "fragments": [{"name": "first"}],
+    }
+    duplicate = {
+        "domain": "VCD_Demo", "dump_size": 4,
+        "read_service": "RVC_Second", "write_service": "WVC_Second",
+        "fragments": [{"name": "second"}],
+    }
+    monkeypatch.setattr(varcoding, "_parsed", lambda _ecu: {
+        "domains": [first, {"error": "bad block"}, duplicate],
+    })
+
+    assert varcoding.list_domains("DEMO") == [{
+        "domain": "VCD_Demo", "dump_size": 2,
+        "read_service": "RVC_First", "write_service": "WVC_First",
+        "read_lid": None, "write_lid": None, "sec_level": None,
+        "fragment_count": 1,
+    }]
+
+
 def test_presentation_meta_from_qualifier_name():
     from caesar_vc import presentation_meta
 

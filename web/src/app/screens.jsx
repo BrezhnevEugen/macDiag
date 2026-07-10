@@ -643,31 +643,76 @@ function Modules() {
   );
 }
 
-function Coding({ connected }) {
+function Coding({ connected, writeSafety }) {
   const [mods, setMods] = React.useState([]);
   const [mod, setMod] = React.useState("");
   const [domains, setDomains] = React.useState([]);
   const [domain, setDomain] = React.useState("");
   const [res, setRes] = React.useState(null);    // /api/coding/read result
+  const [originalCoding, setOriginalCoding] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [editing, setEditing] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
+  const [writeResult, setWriteResult] = React.useState(null);
   const [err, setErr] = React.useState("");
 
   React.useEffect(() => { apiGet("/api/modules").then((d) => setMods(d.modules || [])).catch(() => {}); }, []);
   // load variant-coding domains when the module changes
   React.useEffect(() => {
-    setDomains([]); setDomain(""); setRes(null); setErr("");
+    setDomains([]); setDomain(""); setRes(null); setOriginalCoding("");
+    setConfirming(false); setWriteResult(null); setErr("");
     if (!mod) return;
     apiGet(`/api/coding/domains?module=${encodeURIComponent(mod)}`)
       .then((d) => { const dl = d.domains || []; setDomains(dl); if (dl[0]) setDomain(dl[0].domain); })
       .catch(() => setDomains([]));
   }, [mod]);
 
+  React.useEffect(() => {
+    setRes(null); setOriginalCoding(""); setConfirming(false); setWriteResult(null); setErr("");
+  }, [domain]);
+
   async function read() {
     if (!mod || !domain) return;
-    setLoading(true); setErr(""); setRes(null);
-    try { setRes(await apiGet(`/api/coding/read?module=${encodeURIComponent(mod)}&domain=${encodeURIComponent(domain)}`)); }
+    setLoading(true); setErr(""); setRes(null); setConfirming(false); setWriteResult(null);
+    try {
+      const next = await apiGet(`/api/coding/read?module=${encodeURIComponent(mod)}&domain=${encodeURIComponent(domain)}`);
+      setRes(next); setOriginalCoding(next.coding || "");
+    }
     catch (e) { setErr("Не удалось прочитать: " + String(e)); }
     setLoading(false);
+  }
+
+  async function changeFragment(fragment, option) {
+    if (!res?.coding || !option || option === fragment.current) return;
+    setEditing(fragment.name); setErr(""); setWriteResult(null); setConfirming(false);
+    try {
+      const encoded = await apiPost("/api/coding/encode", {
+        module: mod, domain, coding_hex: res.coding,
+        fragment: fragment.name, option,
+      });
+      const decoded = await apiPost("/api/coding/decode", {
+        module: mod, domain, coding_hex: encoded.coding_hex,
+      });
+      setRes({ ...decoded, lid: res.lid, read_service: res.read_service });
+    } catch (e) {
+      setErr("Не удалось изменить параметр: " + String(e));
+    }
+    setEditing("");
+  }
+
+  async function applyCoding() {
+    if (!res?.coding || !canWrite || res.coding === originalCoding) return;
+    setSaving(true); setErr(""); setWriteResult(null);
+    try {
+      const result = await apiPost("/api/coding/apply", {
+        module: mod, domain, coding_hex: res.coding, unlock: true,
+      });
+      setWriteResult(result); setOriginalCoding(res.coding); setConfirming(false);
+    } catch (e) {
+      setErr("Запись не выполнена: " + String(e));
+    }
+    setSaving(false);
   }
 
   const [xml, setXml] = React.useState(null);   // CxF-style structure dump
@@ -687,9 +732,18 @@ function Coding({ connected }) {
 
   if (!connected) return <ConnectGate />;
   const frags = res?.fragments || [];
+  const canWrite = Boolean(writeSafety?.enabled);
+  const dirty = Boolean(res?.coding && originalCoding && res.coding !== originalCoding);
+  const gateHint = writeSafety == null
+    ? "Сервер ещё не сообщил режим записи"
+    : `Запись заблокирована сервером. Нужен ${writeSafety.environment}=1 после проверки VIN и питания`;
   return (
     <>
-      <div className="mac-banner"><Ic name="alert" size={18} />Кодирование меняет настройки ЭБУ. Запись отключена (read-only) — раздел читает и декодирует текущую конфигурацию из CBF.</div>
+      <div className={"mac-banner" + (canWrite ? " ok" : "")}><Ic name="alert" size={18} />
+        {canWrite
+          ? "Кодирование разрешено сервером. Изменение применяется только после отдельного подтверждения; перед записью сохраняется текущая строка."
+          : `${gateHint}. Чтение и декодирование остаются доступны.`}
+      </div>
       <div className="mac-toolbar">
         <label className="mac-field"><span>Модуль</span>
           <select className="mac-select" value={mod} onChange={(e) => setMod(e.target.value)} style={{ minWidth: 140 }}>
@@ -697,7 +751,7 @@ function Coding({ connected }) {
             {mods.map((m) => <option key={m.id} value={m.id}>{m.cbf}</option>)}
           </select></label>
         <label className="mac-field"><span>Домен (variant coding)</span>
-          <select className="mac-select" value={domain} onChange={(e) => { setDomain(e.target.value); setRes(null); }} style={{ minWidth: 300 }} disabled={!domains.length}>
+          <select className="mac-select" value={domain} onChange={(e) => setDomain(e.target.value)} style={{ minWidth: 300 }} disabled={!domains.length}>
             {!domains.length && <option value="">— нет доменов —</option>}
             {domains.map((d) => <option key={d.domain} value={d.domain}>{d.domain}</option>)}
           </select></label>
@@ -708,7 +762,11 @@ function Coding({ connected }) {
           <button className={"mac-btn" + (xml !== null ? " ghost" : "")} onClick={toggleXml} disabled={!mod}>
             <Ic name="book" size={15} />{xml !== null ? "Скрыть XML" : "CxF XML"}
           </button>
-          <button className="mac-btn danger" disabled title="Запись отключена (read-only)"><Ic name="upload" size={15} />Записать</button>
+          <button className="mac-btn danger" onClick={() => setConfirming(true)}
+            disabled={!canWrite || !dirty || loading || Boolean(editing) || saving}
+            title={!canWrite ? gateHint : (!dirty ? "Сначала измени именованный параметр" : "Проверить изменения перед записью")}>
+            <Ic name="upload" size={15} />Записать
+          </button>
         </span>
       </div>
       {xml !== null && (
@@ -725,10 +783,35 @@ function Coding({ connected }) {
         </div>
       )}
       {err && <div className="mac-empty" style={{ color: "var(--danger)" }}>{err}</div>}
+      {confirming && dirty && (
+        <div className="mac-panel" style={{ marginBottom: 14, borderColor: "var(--danger)" }}>
+          <div style={{ fontWeight: 650, marginBottom: 8 }}>Подтвердить запись кодировки</div>
+          <div style={{ color: "var(--txt-2)", fontSize: 13, lineHeight: 1.55 }}>
+            ЭБУ: <b>{mod}</b> · домен: <b>{domain}</b><br />
+            Было: <code>{originalCoding}</code><br />
+            Станет: <code>{res.coding}</code><br />
+            Перед записью backend прочитает текущее значение, сохранит backup и выполнит Security Access.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button className="mac-btn danger" onClick={applyCoding} disabled={saving}>
+              {saving ? <span className="mac-spin"></span> : <Ic name="upload" size={15} />}
+              Да, записать в ЭБУ
+            </button>
+            <button className="mac-btn ghost" onClick={() => setConfirming(false)} disabled={saving}>Отмена</button>
+          </div>
+        </div>
+      )}
+      {writeResult?.ok && (
+        <div className="mac-banner ok" style={{ marginBottom: 14 }}><Ic name="check" size={18} />
+          Запись выполнена: {writeResult.write_service || domain}, LID {writeResult.lid || "—"}.
+          Backup {writeResult.backup?.saved ? "сохранён" : "не сохранён"}; Security Access {writeResult.security?.unlocked ? "подтверждён" : "не потребовался или не подтверждён"}.
+        </div>
+      )}
       {res ? (
         <>
           <div style={{ margin: "4px 2px 12px", fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--muted)" }}>
             строка: <code style={{ color: "var(--accent-2)" }}>{res.coding}</code> · {res.dump_size} Б · LID {res.lid} · {frags.length} парам.
+            {dirty && <span style={{ color: "var(--warn)", marginLeft: 8 }}>изменена, не записана</span>}
           </div>
           <div className="mac-table-wrap">
             <table className="mac-table">
@@ -739,7 +822,17 @@ function Coding({ connected }) {
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
                     <td><code style={{ color: "var(--muted)" }}>@{p.byte_bit_pos}/{p.bit_length}b</code></td>
                     <td><b>{p.current ?? (p.options && p.options[p.value]) ?? p.value}</b></td>
-                    <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{(p.options || []).slice(0, 4).join(" · ")}{(p.options || []).length > 4 ? " …" : ""}</td>
+                    <td>
+                      {p.options?.length ? (
+                        <select className="mac-select" value={p.current || ""}
+                          onChange={(e) => changeFragment(p, e.target.value)}
+                          disabled={Boolean(editing) || saving} style={{ minWidth: 180 }}>
+                          {!p.current && <option value="">— значение {p.value ?? "не распознано"} —</option>}
+                          {p.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : <span style={{ color: "var(--muted)", fontSize: 12.5 }}>нет именованных опций</span>}
+                      {editing === p.name && <span className="mac-spin" style={{ marginLeft: 8 }}></span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -57,9 +57,17 @@ def list_domains(ecu: str) -> list[dict]:
     if not res:
         return []
     out = []
+    seen = set()
     for d in res["domains"]:
         if "error" in d:
             continue
+        # Some CBFs repeat the same VC domain in multiple internal variant
+        # blocks. _find_domain() intentionally resolves the first match, so
+        # expose that same stable choice once instead of returning duplicate
+        # select options (and duplicate React keys) to API clients.
+        if d["domain"] in seen:
+            continue
+        seen.add(d["domain"])
         out.append({
             "domain": d["domain"], "dump_size": d["dump_size"],
             "read_service": d["read_service"], "write_service": d["write_service"],
