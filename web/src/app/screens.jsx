@@ -434,7 +434,7 @@ function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear, canWrite }) {
           <button className="mac-btn ghost" onClick={onBack}><Ic name="chevron" size={15} style={{ transform: "rotate(180deg)" }} />Назад</button>
           <button className="mac-btn danger" onClick={onClear} disabled={!canWrite}
             title={canWrite ? "" : "Сброс заблокирован сервером в режиме hardware"}>
-            <Ic name="refresh" size={15} />Сбросить код
+            <Ic name="refresh" size={15} />Сбросить память DTC
           </button>
         </span>
       </div>
@@ -492,17 +492,37 @@ function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear, canWrite }) {
   );
 }
 
+function DtcClearConfirm({ moduleLabel, count, loading, onConfirm, onCancel }) {
+  return (
+    <div className="mac-panel" style={{ marginTop: 14, borderColor: "var(--danger)" }}>
+      <div style={{ fontWeight: 650, marginBottom: 8 }}>Подтвердить сброс памяти неисправностей</div>
+      <div style={{ color: "var(--txt-2)", fontSize: 13, lineHeight: 1.55 }}>
+        Будет очищена <b>вся память DTC</b> блока <b>{moduleLabel}</b>, а не только открытый код.
+        Сейчас считано кодов: <b>{count}</b>. После операции macDiag повторно прочитает блок.
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button className="mac-btn danger" onClick={onConfirm} disabled={loading}>
+          {loading ? <span className="mac-spin"></span> : <Ic name="refresh" size={15} />}
+          Да, стереть все DTC
+        </button>
+        <button className="mac-btn ghost" onClick={onCancel} disabled={loading}>Отмена</button>
+      </div>
+    </div>
+  );
+}
+
 function Dtc({ connected, initialModule, writeSafety }) {
   const [mods, setMods] = React.useState([]);    // [{id,ecu,dtc,state,protocol}]
   const [mod, setMod] = React.useState(initialModule || "");
   const [data, setData] = React.useState(null);  // /api/dtc response
   const [loading, setLoading] = React.useState(false);
   const [sel, setSel] = React.useState(null);
+  const [confirmClear, setConfirmClear] = React.useState(false);
 
   async function read(target) {
     const t = target || mod;
     if (!t) return;
-    setLoading(true); setSel(null);
+    setLoading(true); setSel(null); setConfirmClear(false);
     try { setData(await apiGet(`/api/dtc?module=${encodeURIComponent(t)}&lang=ru`)); }
     catch (e) { setData({ status: "error", detail: String(e), dtcs: [] }); }
     setLoading(false);
@@ -523,7 +543,7 @@ function Dtc({ connected, initialModule, writeSafety }) {
 
   async function clear() {
     if (!mod || !canWrite) return;
-    setLoading(true);
+    setLoading(true); setConfirmClear(false);
     try {
       await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`);
     } catch (e) {
@@ -538,8 +558,15 @@ function Dtc({ connected, initialModule, writeSafety }) {
   const canWrite = Boolean(writeSafety?.enabled);
   const rows = data?.dtcs || [];
   const modLabel = (mods.find((m) => m.id === mod) || {}).ecu || mod;
-  if (sel) return <DtcDetail row={sel} moduleId={mod} moduleLabel={modLabel}
-    onBack={() => setSel(null)} onClear={clear} canWrite={canWrite} />;
+  const requestClear = () => { if (canWrite && rows.length > 0) setConfirmClear(true); };
+  if (sel) return (
+    <>
+      <DtcDetail row={sel} moduleId={mod} moduleLabel={modLabel}
+        onBack={() => { setSel(null); setConfirmClear(false); }} onClear={requestClear} canWrite={canWrite} />
+      {confirmClear && <DtcClearConfirm moduleLabel={modLabel} count={rows.length}
+        loading={loading} onConfirm={clear} onCancel={() => setConfirmClear(false)} />}
+    </>
+  );
 
   return (
     <>
@@ -552,7 +579,7 @@ function Dtc({ connected, initialModule, writeSafety }) {
         <button className="mac-btn" onClick={() => read()} disabled={loading || !mod}>
           {loading ? <span className="mac-spin"></span> : <Ic name="download" size={15} />}Считать ошибки
         </button>
-        <button className="mac-btn danger" onClick={clear}
+        <button className="mac-btn danger" onClick={requestClear}
           disabled={loading || rows.length === 0 || !canWrite}
           title={canWrite ? "" : "Сброс заблокирован сервером в режиме hardware"}>
           <Ic name="refresh" size={15} />Сбросить
@@ -561,6 +588,8 @@ function Dtc({ connected, initialModule, writeSafety }) {
       {!canWrite && <div className="mac-empty" style={{ color: "var(--warn)" }}>
         Сброс DTC заблокирован сервером. Для реального адаптера нужен запуск с MACDIAG_ENABLE_WRITES=1.
       </div>}
+      {confirmClear && <DtcClearConfirm moduleLabel={modLabel} count={rows.length}
+        loading={loading} onConfirm={clear} onCancel={() => setConfirmClear(false)} />}
       {data && rows.length > 0 && (
         <>
           <div className="mac-table-wrap">
