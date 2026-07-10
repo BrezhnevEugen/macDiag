@@ -1186,6 +1186,130 @@ function Flash({ connected }) {
   );
 }
 
+// ---- Журнал ECU-changing операций -----------------------------------------
+const AUDIT_OP = {
+  dtc_clear: "DTC clear",
+  coding_apply: "Variant coding",
+  coding_write: "Coding DID",
+};
+const AUDIT_OUTCOME = {
+  success: { label: "Выполнено", color: "var(--ok)" },
+  error: { label: "Ошибка", color: "var(--danger)" },
+  blocked: { label: "Заблокировано", color: "var(--warn)" },
+};
+
+function Audit() {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const [outcome, setOutcome] = React.useState("all");
+  const [operation, setOperation] = React.useState("all");
+  const [q, setQ] = React.useState("");
+
+  const load = React.useCallback(async () => {
+    setLoading(true); setErr("");
+    try { setData(await apiGet("/api/audit/actions?limit=200")); }
+    catch (e) { setErr("Не удалось загрузить audit log: " + String(e)); }
+    setLoading(false);
+  }, []);
+  React.useEffect(() => { void load(); }, [load]);
+
+  const entries = data?.entries || [];
+  const operations = [...new Set(entries.map((entry) => entry.operation).filter(Boolean))].sort();
+  const query = q.trim().toLowerCase();
+  const rows = entries.filter((entry) => {
+    if (outcome !== "all" && entry.outcome !== outcome) return false;
+    if (operation !== "all" && entry.operation !== operation) return false;
+    if (!query) return true;
+    return [entry.operation, entry.outcome, entry.module, entry.ecu, entry.domain,
+      entry.did, entry.error, entry.reason].filter(Boolean).join(" ").toLowerCase().includes(query);
+  });
+  const counts = entries.reduce((acc, entry) => {
+    acc[entry.outcome] = (acc[entry.outcome] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <>
+      <div className="mac-toolbar">
+        <label className="mac-field"><span>Результат</span>
+          <select className="mac-select" value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+            <option value="all">Все</option><option value="success">Выполнено</option>
+            <option value="error">Ошибки</option><option value="blocked">Заблокировано</option>
+          </select></label>
+        <label className="mac-field"><span>Операция</span>
+          <select className="mac-select" value={operation} onChange={(e) => setOperation(e.target.value)}>
+            <option value="all">Все операции</option>
+            {operations.map((op) => <option key={op} value={op}>{AUDIT_OP[op] || op}</option>)}
+          </select></label>
+        <label className="mac-field" style={{ flex: 1, minWidth: 220 }}><span>Поиск</span>
+          <input className="mac-input" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="ЭБУ, домен, DID, ошибка…" /></label>
+        <button className="mac-btn" onClick={load} disabled={loading}>
+          {loading ? <span className="mac-spin"></span> : <Ic name="refresh" size={15} />}Обновить
+        </button>
+      </div>
+
+      <div className="mac-mini-grid" style={{ marginBottom: 16 }}>
+        {Object.entries(AUDIT_OUTCOME).map(([key, spec]) => (
+          <div className="mac-mini" key={key}>
+            <div className="l">{spec.label}</div>
+            <div className="v" style={{ color: spec.color }}>{counts[key] || 0}</div>
+          </div>
+        ))}
+        <div className="mac-mini"><div className="l">Показано</div><div className="v">{rows.length}</div></div>
+      </div>
+
+      {data?.path && <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 12 }}>
+        Append-only файл: <code>{data.path}</code>
+      </div>}
+      {err && <div className="mac-empty" style={{ color: "var(--danger)" }}>{err}</div>}
+      {!err && data && entries.length === 0 && (
+        <div className="mac-empty">Журнал пуст — события появятся после DTC clear или coding-записи.</div>
+      )}
+      {!err && entries.length > 0 && rows.length === 0 && (
+        <div className="mac-empty">По выбранным фильтрам событий нет.</div>
+      )}
+      {rows.length > 0 && (
+        <div className="mac-table-wrap">
+          <table className="mac-table">
+            <thead><tr><th>Время</th><th>Результат</th><th>Операция</th><th>Цель</th><th>Детали</th><th>Режим</th></tr></thead>
+            <tbody>
+              {rows.map((entry, i) => {
+                const state = AUDIT_OUTCOME[entry.outcome] || { label: entry.outcome || "—", color: "var(--muted)" };
+                const details = [
+                  entry.did && `ID ${entry.did}`,
+                  entry.value_bytes != null && `${entry.value_bytes} Б`,
+                  entry.security_level != null && `Security L${entry.security_level}`,
+                  entry.backup_saved === true && "backup сохранён",
+                  entry.reason,
+                  entry.error,
+                ].filter(Boolean);
+                return (
+                  <tr key={`${entry.ts}-${entry.operation}-${i}`}>
+                    <td style={{ whiteSpace: "nowrap", color: "var(--muted)", fontSize: 12 }}>
+                      {entry.ts ? new Date(entry.ts * 1000).toLocaleString("ru-RU") : "—"}
+                    </td>
+                    <td><span className="mac-sevdot"><i style={{ background: state.color }}></i>{state.label}</span></td>
+                    <td style={{ fontWeight: 600 }}>{AUDIT_OP[entry.operation] || entry.operation}</td>
+                    <td>{entry.ecu || entry.module || "—"}<br />
+                      {entry.domain && <span style={{ color: "var(--muted)", fontSize: 12 }}>{entry.domain}</span>}
+                    </td>
+                    <td style={{ color: entry.error ? "var(--danger)" : "var(--txt-2)", maxWidth: 430 }}>
+                      {details.join(" · ") || "—"}
+                    </td>
+                    <td><span className="mac-chip">{entry.mode || "—"}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---- Справка (references / library) -----------------------------------------
 function SearchBox({ value, onChange, placeholder }) {
   return (
@@ -1277,4 +1401,4 @@ function Dict({ lang }) {
   );
 }
 
-export { Overview, Live, Dtc, Modules, Coding, Flash, Refs, Dict };
+export { Overview, Live, Dtc, Modules, Coding, Flash, Audit, Refs, Dict };

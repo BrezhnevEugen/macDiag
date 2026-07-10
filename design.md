@@ -154,7 +154,7 @@ Dark theme only (GitHub-dark derived).
 
 ## Pages & screens (what each does)
 
-The app is a single-page tool with a top header and 7 tabs. The mental model is
+The app is a single-page tool with a top header and 9 tabs. The mental model is
 a workshop session: connect the adapter → identify the car → look at state →
 read live values → chase faults → (rarely) code.
 
@@ -193,11 +193,18 @@ battery voltage; a busy spinner. State, not navigation.
    configuration, decode it into named option fragments, change one option, and
    write it back — with a backup of the current value and explicit confirmation.
 
-6. **Справка — References.** A local knowledge layer: searchable CAN / Mercedes
+6. **Программирование — Programming.** Read-only software-version and CFF
+   catalogue/inspection surface. Flash writing remains intentionally disabled.
+
+7. **Журнал — Audit.** Read-only append-only history of ECU-changing operations:
+   success, error, and server-blocked DTC clear / coding attempts, with target,
+   identifiers, security level, backup status, and error reason.
+
+8. **Справка — References.** A local knowledge layer: searchable CAN / Mercedes
    network bookmarks, and verified passive **CAN bus examples** (bus speed, CAN
    id, sample payload, meaning, safety note) for bench/replacement scenarios.
 
-7. **Словарь — Dictionary.** A translation editor to curate RU/EN/DE labels for
+9. **Словарь — Dictionary.** A translation editor to curate RU/EN/DE labels for
    jobs and measurement groups — the localization layer over the normalized data.
 
 ## Operational logic — faults · coding · programming

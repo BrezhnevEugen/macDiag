@@ -8,6 +8,7 @@ const NAV = [
   { id: "modules", label: "Модули", icon: "cpu" },
   { id: "coding", label: "Кодирование", icon: "sliders" },
   { id: "flash", label: "Программирование", icon: "drive" },
+  { id: "audit", label: "Журнал", icon: "history" },
   { id: "refs", label: "Справка", icon: "book" },
   { id: "dict", label: "Словарь", icon: "globe" },
 ];

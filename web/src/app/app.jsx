@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sidebar, AppBar } from './shell.jsx';
-import { Overview, Live, Dtc, Modules, Coding, Flash, Refs, Dict } from './screens.jsx';
+import { Overview, Live, Dtc, Modules, Coding, Flash, Audit, Refs, Dict } from './screens.jsx';
 import { apiGet } from './api.js';
 // macDiag Modern — app: theming state, navigation, persistence.
 const PAGES = {
@@ -10,6 +10,7 @@ const PAGES = {
   modules:  { title: "Модули", subtitle: "Каталог ЭБУ и параметры шины" },
   coding:   { title: "Кодирование", subtitle: "Variant coding по доменам CBF" },
   flash:    { title: "Программирование", subtitle: "ПО блоков · дампы прошивок · каталог CFF" },
+  audit:    { title: "Журнал действий", subtitle: "Неизменяемый след ECU-changing операций" },
   refs:     { title: "Справка", subtitle: "Ссылки по CAN/сети и проверенные факты" },
   dict:     { title: "Словарь", subtitle: "Переводы измерений и процедур" },
 };
@@ -133,6 +134,7 @@ function ModernApp() {
           {tab === "modules" && <Modules />}
           {tab === "coding" && <Coding connected={connected} writeSafety={writeSafety} />}
           {tab === "flash" && <Flash connected={connected} />}
+          {tab === "audit" && <Audit />}
           {tab === "refs" && <Refs />}
           {tab === "dict" && <Dict lang={lang} />}
         </div>
