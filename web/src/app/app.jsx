@@ -24,6 +24,7 @@ function ModernApp() {
   const [connected, setConnected] = React.useState(false);
   const [voltage, setVoltage] = React.useState(null);
   const [adapter, setAdapter] = React.useState(null);
+  const [writeSafety, setWriteSafety] = React.useState(null);
   const [profile, setProfile] = React.useState(null);
   const [profiles, setProfiles] = React.useState([]);
   const [busy, setBusy] = React.useState(false);
@@ -42,6 +43,7 @@ function ModernApp() {
     setConnected(!!s.connected);
     setVoltage(s.voltage ?? null);
     if ("adapter" in s) setAdapter(s.adapter ?? null);
+    if ("writes" in s) setWriteSafety(s.writes ?? null);
     if ("profile" in s) setProfile(s.profile ?? null);
   }, []);
   // Parse the body even on a non-2xx response — these endpoints return a
@@ -126,7 +128,8 @@ function ModernApp() {
           {tab === "overview" && <Overview connected={connected} adapter={adapter}
             onAdapterSelfTest={selfTestAdapter} onOpenDtc={openDtc} />}
           {tab === "live" && <Live connected={connected} />}
-          {tab === "dtc" && <Dtc connected={connected} initialModule={dtcModule} />}
+          {tab === "dtc" && <Dtc connected={connected} initialModule={dtcModule}
+            writeSafety={writeSafety} />}
           {tab === "modules" && <Modules />}
           {tab === "coding" && <Coding connected={connected} />}
           {tab === "flash" && <Flash connected={connected} />}

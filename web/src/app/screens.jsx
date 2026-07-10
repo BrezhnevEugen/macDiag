@@ -409,7 +409,7 @@ function MeasureRunner({ path, module, title, onClose }) {
   );
 }
 
-function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear }) {
+function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear, canWrite }) {
   const [ctx, setCtx] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   React.useEffect(() => {
@@ -432,7 +432,10 @@ function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear }) {
         <span className="mac-chip">{moduleLabel}</span>
         <span className="mac-dtc-actions">
           <button className="mac-btn ghost" onClick={onBack}><Ic name="chevron" size={15} style={{ transform: "rotate(180deg)" }} />Назад</button>
-          <button className="mac-btn danger" onClick={onClear}><Ic name="refresh" size={15} />Сбросить код</button>
+          <button className="mac-btn danger" onClick={onClear} disabled={!canWrite}
+            title={canWrite ? "" : "Сброс заблокирован сервером в режиме hardware"}>
+            <Ic name="refresh" size={15} />Сбросить код
+          </button>
         </span>
       </div>
       <p style={{ fontSize: 15, color: "var(--txt)", margin: "10px 0 2px", fontWeight: 500 }}>{row.description || ctx?.description}</p>
@@ -489,7 +492,7 @@ function DtcDetail({ row, moduleId, moduleLabel, onBack, onClear }) {
   );
 }
 
-function Dtc({ connected, initialModule }) {
+function Dtc({ connected, initialModule, writeSafety }) {
   const [mods, setMods] = React.useState([]);    // [{id,ecu,dtc,state,protocol}]
   const [mod, setMod] = React.useState(initialModule || "");
   const [data, setData] = React.useState(null);  // /api/dtc response
@@ -519,7 +522,7 @@ function Dtc({ connected, initialModule }) {
   React.useEffect(() => { if (connected && mod) read(mod); }, [mod, connected]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function clear() {
-    if (!mod) return;
+    if (!mod || !canWrite) return;
     setLoading(true);
     try {
       await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`);
@@ -532,9 +535,11 @@ function Dtc({ connected, initialModule }) {
   }
 
   if (!connected) return <ConnectGate />;
+  const canWrite = Boolean(writeSafety?.enabled);
   const rows = data?.dtcs || [];
   const modLabel = (mods.find((m) => m.id === mod) || {}).ecu || mod;
-  if (sel) return <DtcDetail row={sel} moduleId={mod} moduleLabel={modLabel} onBack={() => setSel(null)} onClear={clear} />;
+  if (sel) return <DtcDetail row={sel} moduleId={mod} moduleLabel={modLabel}
+    onBack={() => setSel(null)} onClear={clear} canWrite={canWrite} />;
 
   return (
     <>
@@ -547,8 +552,15 @@ function Dtc({ connected, initialModule }) {
         <button className="mac-btn" onClick={() => read()} disabled={loading || !mod}>
           {loading ? <span className="mac-spin"></span> : <Ic name="download" size={15} />}Считать ошибки
         </button>
-        <button className="mac-btn danger" onClick={clear} disabled={loading || rows.length === 0}><Ic name="refresh" size={15} />Сбросить</button>
+        <button className="mac-btn danger" onClick={clear}
+          disabled={loading || rows.length === 0 || !canWrite}
+          title={canWrite ? "" : "Сброс заблокирован сервером в режиме hardware"}>
+          <Ic name="refresh" size={15} />Сбросить
+        </button>
       </div>
+      {!canWrite && <div className="mac-empty" style={{ color: "var(--warn)" }}>
+        Сброс DTC заблокирован сервером. Для реального адаптера нужен запуск с MACDIAG_ENABLE_WRITES=1.
+      </div>}
       {data && rows.length > 0 && (
         <>
           <div className="mac-table-wrap">

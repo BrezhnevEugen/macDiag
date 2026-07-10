@@ -37,7 +37,6 @@ function Sidebar({ active, onNav, connected, voltage, mode, profile, profiles,
                 onClick={() => { onNav(n.id); onClose(); }}>
                 <Icon name={n.icon} size={18} />
                 <span>{n.label}</span>
-                {n.id === "dtc" && <span className="mac-navbadge">3</span>}
               </button>
             ))}
           </nav>
