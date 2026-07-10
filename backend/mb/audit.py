@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 
 PATH = Path(os.environ.get("MACDIAG_AUDIT_FILE")
@@ -19,7 +20,7 @@ PATH = Path(os.environ.get("MACDIAG_AUDIT_FILE")
 
 def record(**entry) -> dict:
     """Append one action event without ever breaking the diagnostic operation."""
-    entry = {"ts": round(time.time(), 3), **entry}
+    entry = {"id": str(uuid.uuid4()), "ts": round(time.time(), 3), **entry}
     try:
         PATH.parent.mkdir(parents=True, exist_ok=True)
         with PATH.open("a", encoding="utf-8") as f:

@@ -518,6 +518,7 @@ function Dtc({ connected, initialModule, writeSafety }) {
   const [loading, setLoading] = React.useState(false);
   const [sel, setSel] = React.useState(null);
   const [confirmClear, setConfirmClear] = React.useState(false);
+  const [lastClearAudit, setLastClearAudit] = React.useState(null);
 
   async function read(target) {
     const t = target || mod;
@@ -529,7 +530,7 @@ function Dtc({ connected, initialModule, writeSafety }) {
   }
   // module list comes from a real scan
   React.useEffect(() => {
-    if (!connected) { setMods([]); setData(null); return; }
+    if (!connected) { setMods([]); setData(null); setLastClearAudit(null); return; }
     apiGet("/api/vehicle/scan").then((s) => {
       const list = (s.modules || []).filter((m) => m.state !== "silent");
       setMods(list);
@@ -537,15 +538,18 @@ function Dtc({ connected, initialModule, writeSafety }) {
     }).catch(() => {});
   }, [connected, initialModule]);
   // drill-in from Overview just selects the module; the effect below reads it
-  React.useEffect(() => { if (initialModule) setMod(initialModule); }, [initialModule]);
+  React.useEffect(() => {
+    if (initialModule) { setMod(initialModule); setLastClearAudit(null); }
+  }, [initialModule]);
   // auto-read whenever the selected module changes (manual pick, drill, or default)
   React.useEffect(() => { if (connected && mod) read(mod); }, [mod, connected]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function clear() {
     if (!mod || !canWrite) return;
-    setLoading(true); setConfirmClear(false);
+    setLoading(true); setConfirmClear(false); setLastClearAudit(null);
     try {
-      await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`);
+      const result = await apiPost(`/api/dtc/clear?module=${encodeURIComponent(mod)}`);
+      setLastClearAudit(result.audit || null);
     } catch (e) {
       setData({ status: "error", detail: "Сброс не выполнен: " + String(e.message || e), dtcs: [] });
       setLoading(false);
@@ -572,7 +576,9 @@ function Dtc({ connected, initialModule, writeSafety }) {
     <>
       <div className="mac-toolbar">
         <label className="mac-field"><span>Модуль</span>
-          <select className="mac-select" value={mod} onChange={(e) => { setMod(e.target.value); setData(null); }} style={{ minWidth: 200 }}>
+          <select className="mac-select" value={mod} onChange={(e) => {
+            setMod(e.target.value); setData(null); setLastClearAudit(null);
+          }} style={{ minWidth: 200 }}>
             {mods.length === 0 && <option value="">— подключись и сканируй —</option>}
             {mods.map((m) => <option key={m.id} value={m.id}>{m.ecu}{m.dtc > 0 ? ` (${m.dtc})` : ""}</option>)}
           </select></label>
@@ -588,6 +594,13 @@ function Dtc({ connected, initialModule, writeSafety }) {
       {!canWrite && <div className="mac-empty" style={{ color: "var(--warn)" }}>
         Сброс DTC заблокирован сервером. Для реального адаптера нужен запуск с MACDIAG_ENABLE_WRITES=1.
       </div>}
+      {lastClearAudit && (
+        <div className={"mac-banner" + (lastClearAudit.saved ? " ok" : "")} style={{ marginBottom: 14 }}>
+          <Ic name={lastClearAudit.saved ? "check" : "alert"} size={18} />
+          Память DTC очищена. Audit event <code>{lastClearAudit.id || "—"}</code>
+          {lastClearAudit.saved ? " сохранён." : ` не сохранён: ${lastClearAudit.save_error || "ошибка журнала"}.`}
+        </div>
+      )}
       {confirmClear && <DtcClearConfirm moduleLabel={modLabel} count={rows.length}
         loading={loading} onConfirm={clear} onCancel={() => setConfirmClear(false)} />}
       {data && rows.length > 0 && (
@@ -901,6 +914,7 @@ function Coding({ connected, writeSafety }) {
         <div className="mac-banner ok" style={{ marginBottom: 14 }}><Ic name="check" size={18} />
           Запись выполнена: {writeResult.write_service || domain}, LID {writeResult.lid || "—"}.
           Backup {writeResult.backup?.saved ? "сохранён" : "не сохранён"}; Security Access {writeResult.security?.unlocked ? "подтверждён" : "не потребовался или не подтверждён"}.
+          Audit <code>{writeResult.audit?.id || "не сохранён"}</code>.
         </div>
       )}
       {res ? (
@@ -1278,6 +1292,7 @@ function Audit() {
               {rows.map((entry, i) => {
                 const state = AUDIT_OUTCOME[entry.outcome] || { label: entry.outcome || "—", color: "var(--muted)" };
                 const details = [
+                  entry.id && `event ${entry.id}`,
                   entry.did && `ID ${entry.did}`,
                   entry.value_bytes != null && `${entry.value_bytes} Б`,
                   entry.security_level != null && `Security L${entry.security_level}`,

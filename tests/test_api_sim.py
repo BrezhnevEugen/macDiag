@@ -84,10 +84,12 @@ def test_dtc_read_and_clear(client, tmp_path, monkeypatch):
     cleared = client.post("/api/dtc/clear")
     assert cleared.status_code == 200
     assert cleared.json()["audit"]["outcome"] == "success"
+    assert len(cleared.json()["audit"]["id"]) == 36
     after = client.get("/api/dtc").json()
     assert after["dtcs"] == []
     events = client.get("/api/audit/actions").json()["entries"]
     assert events[0]["operation"] == "dtc_clear"
+    assert events[0]["id"] == cleared.json()["audit"]["id"]
 
 
 def test_identify(client):
@@ -125,6 +127,7 @@ def test_coding_write_backs_up_old_value(client, tmp_path, monkeypatch):
     events = client.get("/api/audit/actions").json()["entries"]
     assert events[0]["operation"] == "coding_write"
     assert events[0]["outcome"] == "success"
+    assert events[0]["id"] == body["audit"]["id"]
 
 
 def test_coding_write_validates_hex(client):
